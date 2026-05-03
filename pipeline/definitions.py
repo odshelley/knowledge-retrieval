@@ -15,6 +15,7 @@ from pipeline.resources import (
 # Asset modules — populated in subsequent tasks
 from pipeline.assets import pdf_blob, v1_md_blob, kg_extracted, structural_overlay, paper_summary
 from pipeline.sensors import minio_pdf_sensor
+from pipeline.jobs import bulk_reingest
 
 defs = Definitions(
     assets=[
@@ -25,6 +26,7 @@ defs = Definitions(
         paper_summary.paper_summary,
     ],
     sensors=[minio_pdf_sensor],
+    jobs=[bulk_reingest],
     resources={
         "neo4j_new": new_neo4j_from_env(),
         "neo4j_legacy": legacy_neo4j_from_env(),
