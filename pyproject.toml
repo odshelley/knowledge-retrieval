@@ -29,6 +29,7 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "integration: end-to-end against real services; skipped unless --run-integration",
 ]
