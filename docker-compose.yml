@@ -50,6 +50,83 @@ services:
       echo 'buckets ready'
       "
 
+  dagster-webserver:
+    build:
+      context: .
+      dockerfile: docker/dagster.Dockerfile
+    container_name: kr_dagster_webserver
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-dagster}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
+      POSTGRES_DB: ${POSTGRES_DB:-dagster}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      NEO4J_NEW_URI: ${NEO4J_NEW_URI}
+      NEO4J_NEW_USERNAME: ${NEO4J_NEW_USERNAME}
+      NEO4J_NEW_PASSWORD: ${NEO4J_NEW_PASSWORD}
+      NEO4J_NEW_DATABASE: ${NEO4J_NEW_DATABASE:-neo4j}
+      NEO4J_LEGACY_URI: ${NEO4J_LEGACY_URI}
+      NEO4J_LEGACY_USERNAME: ${NEO4J_LEGACY_USERNAME}
+      NEO4J_LEGACY_PASSWORD: ${NEO4J_LEGACY_PASSWORD}
+      NEO4J_LEGACY_DATABASE: ${NEO4J_LEGACY_DATABASE:-neo4j}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./pipeline:/opt/code/pipeline:ro
+      - ./scripts:/opt/code/scripts:ro
+      - ./data:/opt/code/data:ro
+      - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
+      - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
+    ports:
+      - "3000:3000"
+
+  dagster-daemon:
+    build:
+      context: .
+      dockerfile: docker/dagster.Dockerfile
+    container_name: kr_dagster_daemon
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dagster-webserver:
+        condition: service_started
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-dagster}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
+      POSTGRES_DB: ${POSTGRES_DB:-dagster}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      NEO4J_NEW_URI: ${NEO4J_NEW_URI}
+      NEO4J_NEW_USERNAME: ${NEO4J_NEW_USERNAME}
+      NEO4J_NEW_PASSWORD: ${NEO4J_NEW_PASSWORD}
+      NEO4J_NEW_DATABASE: ${NEO4J_NEW_DATABASE:-neo4j}
+      NEO4J_LEGACY_URI: ${NEO4J_LEGACY_URI}
+      NEO4J_LEGACY_USERNAME: ${NEO4J_LEGACY_USERNAME}
+      NEO4J_LEGACY_PASSWORD: ${NEO4J_LEGACY_PASSWORD}
+      NEO4J_LEGACY_DATABASE: ${NEO4J_LEGACY_DATABASE:-neo4j}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./pipeline:/opt/code/pipeline:ro
+      - ./scripts:/opt/code/scripts:ro
+      - ./data:/opt/code/data:ro
+      - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
+      - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
+    command: ["uv", "run", "dagster-daemon", "run"]
+
 volumes:
   postgres_data:
   minio_data:
