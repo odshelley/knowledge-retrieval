@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+.env.local
+data/vault-snapshots/
+data/cache/
+.dagster_home/
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/

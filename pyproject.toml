@@ -1,0 +1,39 @@
+[project]
+name = "knowledge-retrieval"
+version = "0.1.0"
+description = "Knowledge pipeline substrate — Dagster + MinIO + Neo4j"
+requires-python = ">=3.12"
+dependencies = [
+    "dagster==1.9.5",
+    "dagster-webserver==1.9.5",
+    "dagster-postgres==0.25.5",
+    "neo4j>=5.27",
+    "neo4j-graphrag[openai]>=1.4",
+    "boto3>=1.35",
+    "openai>=1.55",
+    "anthropic>=0.40",
+    "python-dotenv>=1.0",
+    "pydantic>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "ipykernel>=6.29",
+    "jupyterlab>=4.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: end-to-end against real services; skipped unless --run-integration",
+]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
