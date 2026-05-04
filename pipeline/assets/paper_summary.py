@@ -50,19 +50,27 @@ MATCH (d:Document {paper_id: $paper_id})<-[:FROM_DOCUMENT]-(c:Chunk)
 RETURN c.text AS text ORDER BY id(c)
 """
 
-WRITE_SUMMARY = """
-MATCH (p:Paper {id: $paper_id})
-MERGE (s:Summary {paper_id: $paper_id})
-SET s.motivation = $motivation,
-    s.contributions = $contributions,
-    s.method = $method,
-    s.key_results = $key_results,
-    s.limitations = $limitations,
-    s.related_work = $related_work,
-    s.model = $model,
-    s.generated_at = datetime()
-MERGE (p)-[:HAS_SUMMARY]->(s)
-"""
+# Sonnet 4.6 has 200k-token context. With 4800-char chunks (~1200 tokens each)
+# the cap protects against runaway theses; 160 chunks ≈ 192k tokens, safely
+# inside the model's window. Most academic papers will be far below this.
+MAX_CHUNKS_PER_SUMMARY = 160
+
+
+def _write_summary_query(canonical_label: str) -> str:
+    """Cypher to upsert a Summary and link it to either a Paper or a Book."""
+    return f"""
+    MATCH (p:{canonical_label} {{id: $paper_id}})
+    MERGE (s:Summary {{paper_id: $paper_id}})
+    SET s.motivation = $motivation,
+        s.contributions = $contributions,
+        s.method = $method,
+        s.key_results = $key_results,
+        s.limitations = $limitations,
+        s.related_work = $related_work,
+        s.model = $model,
+        s.generated_at = datetime()
+    MERGE (p)-[:HAS_SUMMARY]->(s)
+    """
 
 
 @asset(
@@ -78,13 +86,29 @@ def paper_summary(context) -> MaterializeResult:
 
     new = context.resources.neo4j_new
     a_cfg = context.resources.anthropic
+    canonical_label = "Book" if part.get("kind") == "book" else "Paper"
 
     with new.get_driver().session(database=new.database) as s:
         chunks = [r["text"] for r in s.run(FETCH_CHUNKS, paper_id=paper_id) if r["text"]]
-    if not chunks:
-        raise RuntimeError(f"no chunks found for {paper_id}; did kg_extracted run?")
 
-    prompt = build_summary_prompt(part["title"], paper_id, chunks[:80])
+    # Soft-fail when there's nothing to summarise. Better to flag the partition
+    # than to fail red and block the rest of the bulk run; usually means
+    # kg_extracted's PDF loader silently produced 0 documents (image-based PDF,
+    # weird encoding, etc.). Operator can investigate later from the Dagster UI.
+    if not chunks:
+        context.log.warning(
+            f"paper_summary skipped for {paper_id}: no chunks in Neo4j. "
+            "Likely kg_extracted produced 0 Documents — check the PDF."
+        )
+        return MaterializeResult(
+            metadata={
+                "paper_id": paper_id,
+                "skipped": True,
+                "reason": "no chunks available",
+            },
+        )
+
+    prompt = build_summary_prompt(part["title"], paper_id, chunks[:MAX_CHUNKS_PER_SUMMARY])
     client = anthropic.Anthropic(api_key=a_cfg.api_key)
     msg = client.messages.parse(
         model=a_cfg.summary_model,
@@ -96,7 +120,7 @@ def paper_summary(context) -> MaterializeResult:
 
     with new.get_driver().session(database=new.database) as s:
         s.run(
-            WRITE_SUMMARY,
+            _write_summary_query(canonical_label),
             paper_id=paper_id,
             motivation=parsed.motivation,
             contributions=parsed.contributions,
@@ -110,8 +134,10 @@ def paper_summary(context) -> MaterializeResult:
     return MaterializeResult(
         metadata={
             "paper_id": paper_id,
+            "kind": canonical_label.lower(),
             "model": a_cfg.summary_model,
             "chunk_count": MetadataValue.int(len(chunks)),
+            "chunks_used": MetadataValue.int(min(len(chunks), MAX_CHUNKS_PER_SUMMARY)),
             "motivation_preview": parsed.motivation[:200],
         },
     )
