@@ -6,9 +6,13 @@ def test_node_types_include_paper_and_topic():
     assert "Topic" in schema.NODE_TYPES
 
 
-def test_relationship_types_include_authored_by_and_in_topic():
-    assert "AUTHORED_BY" in schema.RELATIONSHIP_TYPES
-    assert "IN_TOPIC" in schema.RELATIONSHIP_TYPES
+def test_relationship_types_match_legacy_schema():
+    # The new DB mirrors the legacy alethograph schema 1:1; verbs are subject-first
+    # ("Author AUTHORED Paper", "Paper HAS_TOPIC Topic"), not the AUTHORED_BY / IN_TOPIC
+    # variants we originally drafted.
+    assert "AUTHORED" in schema.RELATIONSHIP_TYPES
+    assert "HAS_TOPIC" in schema.RELATIONSHIP_TYPES
+    assert "CITES" in schema.RELATIONSHIP_TYPES
 
 
 def test_patterns_use_only_declared_types():
