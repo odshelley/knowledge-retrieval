@@ -1,0 +1,106 @@
+digraph KnowledgePipeline {
+  rankdir=TB;
+  compound=true;
+  graph [splines=true, nodesep=0.45, ranksep=0.75, fontname="Inter", bgcolor="#0e1116", fontcolor="#e6edf3", pad=0.5];
+  node  [fontname="Inter", fontsize=11, style="rounded,filled", color="#30363d", fontcolor="#e6edf3", penwidth=1.2];
+  edge  [fontname="Inter", fontsize=9, color="#8b949e", fontcolor="#8b949e", arrowsize=0.7];
+
+  /* ── Source-of-truth tier ────────────────────────────────────── */
+  subgraph cluster_source {
+    label="Source of truth (read-only)";
+    fontcolor="#c9d1d9"; color="#21262d"; bgcolor="#0d1117";
+    style="rounded,dashed";
+
+    icloud  [label="iCloud vault\n(141 PDFs · 1080 .md)", shape=cylinder, fillcolor="#1f6feb"];
+    legacy  [label="Legacy Aura DB\nbd4528e1\n121 papers · topic DAG\nauthors · citations", shape=cylinder, fillcolor="#388bfd"];
+  }
+
+  /* ── Operator scripts ────────────────────────────────────────── */
+  subgraph cluster_scripts {
+    label="One-shot host scripts (operator-run)";
+    fontcolor="#c9d1d9"; color="#21262d"; bgcolor="#0d1117";
+    style="rounded,dashed";
+
+    discover  [label="discover_partitions.py", shape=note, fillcolor="#6639ba"];
+    snapshot  [label="snapshot_vault.py",      shape=note, fillcolor="#6639ba"];
+    init_neo  [label="init_neo4j.py\n(schema + vector index)", shape=note, fillcolor="#6639ba"];
+  }
+
+  /* ── Substrate services (Docker) ─────────────────────────────── */
+  subgraph cluster_docker {
+    label="Docker Compose stack";
+    fontcolor="#c9d1d9"; color="#21262d"; bgcolor="#0d1117";
+    style="rounded";
+
+    minio     [label="MinIO\npdfs/ · legacy-summaries/\nvault-snapshots/", shape=box3d, fillcolor="#bf8700"];
+    postgres  [label="Postgres\n(Dagster metadata)", shape=cylinder, fillcolor="#3fb950"];
+
+    subgraph cluster_dagster {
+      label="Dagster";
+      fontcolor="#c9d1d9"; color="#30363d"; bgcolor="#161b22";
+      style="rounded";
+
+      webserver [label="dagster-webserver\nUI :3000", shape=component, fillcolor="#1a7f37"];
+      daemon    [label="dagster-daemon\nsensor + scheduler + asset", shape=component, fillcolor="#1a7f37"];
+
+      /* Asset graph */
+      sensor    [label="minio_pdf_sensor\n(30 s polling)", shape=hexagon, fillcolor="#9e6a03"];
+
+      pdf_blob       [label="pdf_blob\n[55 partitions]",         shape=box,  fillcolor="#0969da"];
+      v1_md_blob     [label="v1_md_blob\n[55 partitions]",       shape=box,  fillcolor="#0969da"];
+      kg_extracted   [label="kg_extracted\nSimpleKGPipeline\nchunks · embeddings · entities", shape=box, fillcolor="#1f6feb"];
+      structural     [label="structural_overlay\nauthors · topics · citations", shape=box, fillcolor="#1f6feb"];
+      paper_summary  [label="paper_summary\nClaude Sonnet 4.6\n6-section JSON", shape=box, fillcolor="#1f6feb"];
+    }
+  }
+
+  /* ── External LLM/embedding APIs ─────────────────────────────── */
+  subgraph cluster_llm {
+    label="External APIs";
+    fontcolor="#c9d1d9"; color="#21262d"; bgcolor="#0d1117";
+    style="rounded,dashed";
+
+    openai     [label="OpenAI\ngpt-5-nano (extraction)\ntext-embedding-3-small", shape=oval, fillcolor="#8957e5"];
+    anthropic  [label="Anthropic\nclaude-sonnet-4-6\n(summary)",                  shape=oval, fillcolor="#8957e5"];
+  }
+
+  /* ── New Aura DB ─────────────────────────────────────────────── */
+  new_aura  [label="New Aura DB\n6b371650 · alethograph (Pro 1GB)\n\nPaper · Author · Concept · Method\nTheorem · Definition · Topic\nDocument · Chunk · Summary\n+ chunk_embedding HNSW index", shape=cylinder, fillcolor="#cf222e"];
+
+  /* ── Edges ───────────────────────────────────────────────────── */
+  legacy   -> discover [label="MATCH (p:Paper)"];
+  icloud   -> discover [label="scan pdfPath\nfrontmatter"];
+  discover -> minio    [style=dotted, label="(no — writes\n  partitions.json)"];
+
+  icloud   -> snapshot [label="rglob *.pdf, *.md"];
+  snapshot -> minio    [label="put_object\n(content-hashed)"];
+
+  init_neo -> new_aura [label="CREATE CONSTRAINT\nCREATE VECTOR INDEX"];
+
+  minio   -> sensor       [label="list_objects_v2\nevery 30 s"];
+  sensor  -> pdf_blob     [label="RunRequest\nper new key"];
+
+  pdf_blob      -> kg_extracted   [label="hash + size\nmetadata"];
+  v1_md_blob    -> kg_extracted   [label="optional .md"];
+  kg_extracted  -> structural     [label="Paper node\nguaranteed to exist"];
+  structural    -> paper_summary  [label="overlay done"];
+  kg_extracted  -> paper_summary  [label="chunks ready"];
+
+  minio        -> pdf_blob        [label="get_object\npdfs/<id>.pdf"];
+  minio        -> v1_md_blob      [label="get_object\nlegacy-summaries/<id>.md"];
+  minio        -> kg_extracted    [label="download to tmp"];
+
+  legacy       -> structural      [label="authors · topics\ncitations"];
+
+  kg_extracted   -> openai        [label="extract entities\nembed chunks", style=dashed];
+  paper_summary  -> anthropic     [label="summarise", style=dashed];
+
+  kg_extracted   -> new_aura      [label="MERGE Document\nMERGE Chunk\nMERGE Concept/Method..."];
+  structural     -> new_aura      [label="MERGE Author\nMERGE Topic\nMERGE [:CITES]"];
+  paper_summary  -> new_aura      [label="MERGE Summary\n[:HAS_SUMMARY]"];
+
+  postgres -> webserver [dir=both, style=dotted, label="run state\n+ asset metadata"];
+  postgres -> daemon    [dir=both, style=dotted];
+  webserver -> daemon   [dir=both, style=dotted, color="#30363d"];
+
+}
