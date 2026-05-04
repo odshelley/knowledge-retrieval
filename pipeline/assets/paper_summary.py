@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import anthropic
 from dagster import MaterializeResult, MetadataValue, asset
 from pydantic import BaseModel
 
@@ -109,7 +108,7 @@ def paper_summary(context) -> MaterializeResult:
         )
 
     prompt = build_summary_prompt(part["title"], paper_id, chunks[:MAX_CHUNKS_PER_SUMMARY])
-    client = anthropic.Anthropic(api_key=a_cfg.api_key)
+    client = a_cfg.get_client()
     msg = client.messages.parse(
         model=a_cfg.summary_model,
         max_tokens=2000,

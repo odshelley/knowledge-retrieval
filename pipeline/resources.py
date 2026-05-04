@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 
+import anthropic
 import boto3
 from dagster import ConfigurableResource
 from neo4j import Driver, GraphDatabase
@@ -48,6 +49,9 @@ class AnthropicResource(ConfigurableResource):
     """Claude used for paper summary generation."""
     api_key: str = Field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     summary_model: str = "claude-sonnet-4-6"
+
+    def get_client(self) -> anthropic.Anthropic:
+        return anthropic.Anthropic(api_key=self.api_key)
 
 
 def new_neo4j_from_env() -> Neo4jResource:
