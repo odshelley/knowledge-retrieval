@@ -80,21 +80,31 @@ def kg_extracted(context) -> MaterializeResult:
     splitter = FixedSizeSplitter(chunk_size=4800, chunk_overlap=800)
 
     driver = new.get_driver()
-    runs: list[dict] = []
-    with tempfile.TemporaryDirectory() as td:
-        td_path = Path(td)
-        pdf_local = td_path / f"{paper_id}.pdf"
-        if not _download(s3, "pdfs", f"{paper_id}.pdf", pdf_local):
-            raise RuntimeError(f"PDF missing in MinIO: {paper_id}.pdf")
-        runs.append(asyncio.run(_run_pipeline_for_file(
-            driver, embedder, llm, splitter, pdf_local, from_pdf=True, database=new.database
-        )))
 
-        md_local = td_path / f"{paper_id}.md"
-        if _download(s3, "legacy-summaries", f"{paper_id}.md", md_local):
-            runs.append(asyncio.run(_run_pipeline_for_file(
-                driver, embedder, llm, splitter, md_local, from_pdf=False, database=new.database
-            )))
+    # Process PDF + (optional) v1 markdown in a SINGLE event loop. Earlier we ran two
+    # separate asyncio.run() calls, but OpenAILLM / OpenAIEmbeddings lazily create an
+    # async HTTPX client bound to whichever loop is active on first use; the second
+    # asyncio.run() then tries to reuse that client against a fresh, different loop and
+    # crashes with "RuntimeError: Event loop is closed" → surfaces as APIConnectionError.
+    async def _process_all_files() -> list[dict]:
+        results: list[dict] = []
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            pdf_local = td_path / f"{paper_id}.pdf"
+            if not _download(s3, "pdfs", f"{paper_id}.pdf", pdf_local):
+                raise RuntimeError(f"PDF missing in MinIO: {paper_id}.pdf")
+            results.append(await _run_pipeline_for_file(
+                driver, embedder, llm, splitter, pdf_local, from_pdf=True, database=new.database
+            ))
+
+            md_local = td_path / f"{paper_id}.md"
+            if _download(s3, "legacy-summaries", f"{paper_id}.md", md_local):
+                results.append(await _run_pipeline_for_file(
+                    driver, embedder, llm, splitter, md_local, from_pdf=False, database=new.database
+                ))
+        return results
+
+    runs: list[dict] = asyncio.run(_process_all_files())
 
     # MERGE the canonical node so structural_overlay can rely on it existing.
     # Book partitions land as :Book; everything else as :Paper.
