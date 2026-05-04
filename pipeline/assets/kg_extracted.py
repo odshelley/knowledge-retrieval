@@ -81,6 +81,20 @@ def kg_extracted(context) -> MaterializeResult:
 
     driver = new.get_driver()
 
+    def _stamp_unowned_documents() -> None:
+        """SimpleKGPipeline writes Documents whose .path is the temp-file location
+        (PDF branch) or the literal "document.txt" (text branch) — neither is a
+        reliable way to link the Document back to our canonical Paper/Book node.
+        Instead, stamp `Document.paper_id` ourselves on any newly-created Document
+        that hasn't been claimed yet. Called after every SimpleKGPipeline run so
+        we attribute promptly and don't pick up Documents from concurrent partitions.
+        """
+        with driver.session(database=new.database) as s:
+            s.run(
+                "MATCH (d:Document) WHERE d.paper_id IS NULL SET d.paper_id = $paper_id",
+                paper_id=paper_id,
+            )
+
     # Process PDF + (optional) v1 markdown in a SINGLE event loop. Earlier we ran two
     # separate asyncio.run() calls, but OpenAILLM / OpenAIEmbeddings lazily create an
     # async HTTPX client bound to whichever loop is active on first use; the second
@@ -96,12 +110,14 @@ def kg_extracted(context) -> MaterializeResult:
             results.append(await _run_pipeline_for_file(
                 driver, embedder, llm, splitter, pdf_local, from_pdf=True, database=new.database
             ))
+            _stamp_unowned_documents()
 
             md_local = td_path / f"{paper_id}.md"
             if _download(s3, "legacy-summaries", f"{paper_id}.md", md_local):
                 results.append(await _run_pipeline_for_file(
                     driver, embedder, llm, splitter, md_local, from_pdf=False, database=new.database
                 ))
+                _stamp_unowned_documents()
         return results
 
     runs: list[dict] = asyncio.run(_process_all_files())
@@ -149,18 +165,15 @@ def kg_extracted(context) -> MaterializeResult:
                 year=part.get("year"),
             )
 
-        # Bridge our canonical Paper/Book node to the Document(s) SimpleKGPipeline
-        # created. SimpleKGPipeline writes Document.path = the local temp file path
-        # (which always ends with "<paper_id>.pdf" or "<paper_id>.md"); we match on
-        # that suffix to link them. Without this edge, downstream assets (e.g.
-        # paper_summary) cannot navigate from a Paper to its chunks.
+        # Bridge canonical node to the Document(s) we just stamped with this paper_id.
+        # The stamping happens inside _stamp_unowned_documents after each
+        # SimpleKGPipeline call, so by the time we get here every Document this
+        # partition produced has Document.paper_id set.
         canonical_label = "Book" if kind == "book" else "Paper"
         s.run(
             f"""
             MATCH (canonical:{canonical_label} {{id: $paper_id}})
-            MATCH (d:Document)
-            WHERE d.path ENDS WITH ($paper_id + '.pdf')
-               OR d.path ENDS WITH ($paper_id + '.md')
+            MATCH (d:Document {{paper_id: $paper_id}})
             MERGE (canonical)-[:HAS_DOCUMENT]->(d)
             """,
             paper_id=paper_id,

@@ -43,9 +43,10 @@ def build_summary_prompt(title: str, paper_id: str, chunks: list[str]) -> str:
 
 
 FETCH_CHUNKS = """
-// SimpleKGPipeline writes Chunk -[:FROM_DOCUMENT]-> Document; kg_extracted bridges
-// Paper -[:HAS_DOCUMENT]-> Document. Traverse both hops to get this paper's chunks.
-MATCH (p:Paper {id: $paper_id})-[:HAS_DOCUMENT]->(d:Document)<-[:FROM_DOCUMENT]-(c:Chunk)
+// kg_extracted stamps Document.paper_id directly (Document.path is unreliable —
+// SimpleKGPipeline uses temp paths for PDFs and a literal "document.txt" for the
+// text branch). Match on the stamp.
+MATCH (d:Document {paper_id: $paper_id})<-[:FROM_DOCUMENT]-(c:Chunk)
 RETURN c.text AS text ORDER BY id(c)
 """
 
