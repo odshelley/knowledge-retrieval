@@ -6,11 +6,12 @@ import botocore.exceptions
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.partitions import get_partition, partitions_def
+from pipeline.storage import LEGACY_SUMMARIES_BUCKET
 
 
 def fetch_md_metadata(s3_client, key: str) -> dict:
     try:
-        obj = s3_client.get_object(Bucket="legacy-summaries", Key=key)
+        obj = s3_client.get_object(Bucket=LEGACY_SUMMARIES_BUCKET, Key=key)
     except botocore.exceptions.ClientError as e:
         if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
             return {"present": False}
@@ -36,5 +37,5 @@ def v1_md_blob(context) -> MaterializeResult:
     if meta["present"]:
         md["sha256"] = meta["sha256"]
         md["size_bytes"] = MetadataValue.int(meta["size_bytes"])
-        md["key"] = f"legacy-summaries/{paper_id}.md"
+        md["key"] = f"{LEGACY_SUMMARIES_BUCKET}/{paper_id}.md"
     return MaterializeResult(metadata=md)

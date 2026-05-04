@@ -14,6 +14,7 @@ from pipeline.assets.pdf_blob import pdf_blob
 from pipeline.assets.structural_overlay import structural_overlay
 from pipeline.assets.v1_md_blob import v1_md_blob
 from pipeline.partitions import paper_ids
+from pipeline.storage import PDFS_BUCKET
 
 
 def _key_to_partition(key: str) -> str:
@@ -23,7 +24,7 @@ def _key_to_partition(key: str) -> str:
 
 
 def _list_new_keys(s3_client, since_ts: float) -> tuple[list[str], float]:
-    resp = s3_client.list_objects_v2(Bucket="pdfs")
+    resp = s3_client.list_objects_v2(Bucket=PDFS_BUCKET)
     contents = resp.get("Contents", []) or []
     new = []
     latest = since_ts

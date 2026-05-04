@@ -15,6 +15,7 @@ from neo4j_graphrag.llm import OpenAILLM
 
 from pipeline.partitions import get_partition, partitions_def
 from pipeline.schema import NODE_TYPES, PATTERNS, RELATIONSHIP_TYPES
+from pipeline.storage import LEGACY_SUMMARIES_BUCKET, PDFS_BUCKET
 
 
 def _download(s3_client, bucket: str, key: str, dest: Path) -> bool:
@@ -105,7 +106,7 @@ def kg_extracted(context) -> MaterializeResult:
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
             pdf_local = td_path / f"{paper_id}.pdf"
-            if not _download(s3, "pdfs", f"{paper_id}.pdf", pdf_local):
+            if not _download(s3, PDFS_BUCKET, f"{paper_id}.pdf", pdf_local):
                 raise RuntimeError(f"PDF missing in MinIO: {paper_id}.pdf")
             results.append(await _run_pipeline_for_file(
                 driver, embedder, llm, splitter, pdf_local, from_pdf=True, database=new.database
@@ -113,7 +114,7 @@ def kg_extracted(context) -> MaterializeResult:
             _stamp_unowned_documents()
 
             md_local = td_path / f"{paper_id}.md"
-            if _download(s3, "legacy-summaries", f"{paper_id}.md", md_local):
+            if _download(s3, LEGACY_SUMMARIES_BUCKET, f"{paper_id}.md", md_local):
                 results.append(await _run_pipeline_for_file(
                     driver, embedder, llm, splitter, md_local, from_pdf=False, database=new.database
                 ))

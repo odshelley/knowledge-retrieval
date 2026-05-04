@@ -6,10 +6,11 @@ from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.partitions import get_partition, partitions_def
 from pipeline.resources import MinIOResource
+from pipeline.storage import PDFS_BUCKET
 
 
 def compute_pdf_metadata(s3_client, key: str) -> dict:
-    obj = s3_client.get_object(Bucket="pdfs", Key=key)
+    obj = s3_client.get_object(Bucket=PDFS_BUCKET, Key=key)
     h = hashlib.sha256()
     size = 0
     for chunk in obj["Body"].iter_chunks(chunk_size=1 << 20):
@@ -32,7 +33,7 @@ def pdf_blob(context) -> MaterializeResult:
         metadata={
             "paper_id": paper_id,
             "title": part["title"],
-            "key": f"pdfs/{paper_id}.pdf",
+            "key": f"{PDFS_BUCKET}/{paper_id}.pdf",
             "sha256": meta["sha256"],
             "size_bytes": MetadataValue.int(meta["size_bytes"]),
         },

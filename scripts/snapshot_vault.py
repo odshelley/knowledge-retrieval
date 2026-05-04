@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv
 
 from pipeline.resources import minio_from_env
+from pipeline.storage import LEGACY_SUMMARIES_BUCKET, PDFS_BUCKET, VAULT_SNAPSHOTS_BUCKET
 
 load_dotenv()
 
@@ -49,7 +50,7 @@ def upload_tarball(s3, tar_path: Path) -> str:
     today = dt.date.today().isoformat()
     key = f"{today}-initial.tar.gz"
     with tar_path.open("rb") as f:
-        s3.put_object(Bucket="vault-snapshots", Key=key, Body=f)
+        s3.put_object(Bucket=VAULT_SNAPSHOTS_BUCKET, Key=key, Body=f)
     return key
 
 
@@ -64,7 +65,7 @@ def upload_partitioned_files(vault: Path, partitions: list[dict], s3) -> dict[st
             continue
         with pdf.open("rb") as f:
             s3.put_object(
-                Bucket="pdfs",
+                Bucket=PDFS_BUCKET,
                 Key=f"{part['paper_id']}.pdf",
                 Body=f,
                 Metadata={"sha256": content_hash(pdf)},
@@ -73,7 +74,7 @@ def upload_partitioned_files(vault: Path, partitions: list[dict], s3) -> dict[st
         if md is not None and md.exists():
             with md.open("rb") as f:
                 s3.put_object(
-                    Bucket="legacy-summaries",
+                    Bucket=LEGACY_SUMMARIES_BUCKET,
                     Key=f"{part['paper_id']}.md",
                     Body=f,
                     Metadata={"sha256": content_hash(md)},
