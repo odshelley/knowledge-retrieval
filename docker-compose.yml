@@ -125,7 +125,7 @@ services:
       - ./data:/opt/code/data:ro
       - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
       - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
-    command: ["uv", "run", "dagster-daemon", "run"]
+    command: ["uv", "run", "dagster-daemon", "run", "-w", "/opt/dagster_home/workspace.yaml"]
 
 volumes:
   postgres_data:
