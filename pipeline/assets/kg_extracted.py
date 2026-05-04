@@ -120,7 +120,7 @@ def kg_extracted(context) -> MaterializeResult:
                 _stamp_unowned_documents()
         return results
 
-    runs: list[dict] = asyncio.run(_process_all_files())
+    asyncio.run(_process_all_files())
 
     # MERGE the canonical node so structural_overlay can rely on it existing.
     # Book partitions land as :Book; everything else as :Paper.
@@ -179,11 +179,32 @@ def kg_extracted(context) -> MaterializeResult:
             paper_id=paper_id,
         )
 
+        # Count what we actually wrote, so a green-but-empty extraction is visible
+        # at a glance in the UI rather than silently passing.
+        counts = s.run(
+            """
+            MATCH (d:Document {paper_id: $paper_id})
+            OPTIONAL MATCH (d)<-[:FROM_DOCUMENT]-(c:Chunk)
+            RETURN count(DISTINCT d) AS docs, count(c) AS chunks
+            """,
+            paper_id=paper_id,
+        ).single()
+        n_docs = counts["docs"] if counts else 0
+        n_chunks = counts["chunks"] if counts else 0
+
+    if n_docs == 0:
+        context.log.warning(
+            f"kg_extracted produced 0 Documents for {paper_id} — "
+            "SimpleKGPipeline ran without writing anything. PDF may be image-based "
+            "or have unusual encoding; downstream paper_summary will skip."
+        )
+
     return MaterializeResult(
         metadata={
             "paper_id": paper_id,
             "kind": kind,
-            "files_processed": MetadataValue.int(len(runs)),
+            "documents_created": MetadataValue.int(n_docs),
+            "chunks_created": MetadataValue.int(n_chunks),
             "schema_version": "v1",
         },
     )
