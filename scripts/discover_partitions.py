@@ -11,7 +11,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
@@ -33,6 +36,9 @@ RETURN p.id AS paper_id,
 """
 
 
+PDFPATH_RE = re.compile(r'pdfPath:\s*["\']?\[\[([^\]]+\.pdf)\]\]', re.IGNORECASE)
+
+
 def _slug(s: str) -> str:
     s = s.lower()
     s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
@@ -44,8 +50,28 @@ def _index_pdfs(vault: Path) -> dict[str, Path]:
     return {p.stem.lower(): p for p in vault.rglob("*.pdf")}
 
 
-def _match_pdf(paper: dict, pdf_index: dict[str, Path]) -> Path | None:
-    """Try arxiv id (most reliable), then DOI suffix, then title slug."""
+def _pdf_from_frontmatter(md_file: Path, vault: Path) -> Path | None:
+    """The canonical mapping: each paper note has `pdfPath: "[[Files/.../X.pdf]]"`."""
+    if not md_file.exists():
+        return None
+    text = md_file.read_text(encoding="utf-8", errors="replace")
+    head = text[:4000]  # frontmatter is at the top
+    m = PDFPATH_RE.search(head)
+    if not m:
+        return None
+    rel = m.group(1).strip()
+    candidate = vault / rel
+    return candidate if candidate.exists() else None
+
+
+def _match_pdf(paper: dict, pdf_index: dict[str, Path], vault: Path) -> Path | None:
+    """Prefer pdfPath frontmatter from the paper's note. Fall back to id/title heuristics."""
+    note_path = paper.get("note_path")
+    if note_path:
+        from_fm = _pdf_from_frontmatter(vault / note_path, vault)
+        if from_fm is not None:
+            return from_fm
+
     candidates: list[str] = []
     if paper.get("arxiv_id"):
         candidates.append(paper["arxiv_id"])
@@ -83,7 +109,7 @@ def main() -> None:
     resolved: list[dict] = []
     unresolved: list[dict] = []
     for p in papers:
-        pdf = _match_pdf(p, pdf_index)
+        pdf = _match_pdf(p, pdf_index, VAULT)
         md = (VAULT / p["note_path"]) if p.get("note_path") else None
         md_ok = md is not None and md.exists()
         if pdf is None:

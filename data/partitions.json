@@ -1,0 +1,497 @@
+[
+  {
+    "paper_id": "1243a54adbaadc28e972789e3484baf805f5c6fd",
+    "title": "Solving High-Dimensional Partial Differential Equations Using Deep Learning",
+    "pdf_path": "Files/transaction-costs/Solving high-dimensional partial differential equations using deep learning.pdf",
+    "md_path": "Solving High-Dimensional Partial Differential Equations Using Deep Learning.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2018
+  },
+  {
+    "paper_id": "12abf64574d0762318058d1beb5d6177cbc47621",
+    "title": "Towards Certified Unlearning for Deep Neural Networks",
+    "pdf_path": "Files/segmentation-unlearning/Towards Certified Unlearning for Deep Neural Networks.pdf",
+    "md_path": "Towards Certified Unlearning for Deep Neural Networks.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2024
+  },
+  {
+    "paper_id": "15a6c16b9e17e47b5cc7ed67e888fc14a7efee3a",
+    "title": "Uncertainty-aware Self-ensembling Model for Semi-supervised 3D Left Atrium Segmentation",
+    "pdf_path": "Files/segmentation-unlearning/Uncertainty-aware Self-ensembling Model for Semi-supervised 3D Left Atrium Segme.pdf",
+    "md_path": "Uncertainty-aware Self-ensembling Model for Semi-supervised 3D Left Atrium Segmentation.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2019
+  },
+  {
+    "paper_id": "1e1b514a678c714a80450df6d1f0e5e2cdc1c3bd",
+    "title": "Deep Fictitious Play for Finding Markovian Nash Equilibrium in Multi-Agent Games",
+    "pdf_path": "Files/transaction-costs/Deep Fictitious Play for Finding Markovian Nash Equilibrium in Multi-Agent Games.pdf",
+    "md_path": "Deep Fictitious Play for Finding Markovian Nash Equilibrium in Multi-Agent Games.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "1ea143c34b9bc359780f79ba4d68dee68bcc1129",
+    "title": "LightRAG: Simple and Fast Retrieval-Augmented Generation",
+    "pdf_path": "Files/knowledge-retrieval/2410.05779v3.pdf",
+    "md_path": "LightRAG - Simple and Fast Retrieval-Augmented Generation.md",
+    "arxiv_id": "2410.05779",
+    "doi": "10.48550/arXiv.2410.05779",
+    "year": 2024
+  },
+  {
+    "paper_id": "1f11ead23d70b7e55adf3bd70c3dd8d94601ed96",
+    "title": "Convergence of Deep Fictitious Play for Stochastic Differential Games",
+    "pdf_path": "Files/transaction-costs/Convergence of Deep Fictitious Play for Stochastic Differential Games.pdf",
+    "md_path": "Convergence of Deep Fictitious Play for Stochastic Differential Games.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "24b3c20edc0b2c413d0f6698f355c0e7d5c0aa79",
+    "title": "HiDiff: Hybrid Diffusion Framework for Medical Image Segmentation",
+    "pdf_path": "Files/segmentation-unlearning/HiDiff Hybrid Diffusion Framework for Medical Image Segmentation.pdf",
+    "md_path": "HiDiff Hybrid Diffusion Framework for Medical Image Segmentation.md",
+    "arxiv_id": "2407.03548",
+    "doi": "10.1109/TMI.2024.3424471",
+    "year": 2024
+  },
+  {
+    "paper_id": "2bc3cbc06ff8ecec33e42970dc53dc5a851414b7",
+    "title": "Model Collapse Is Not a Bug but a Feature in Machine Unlearning for LLMs",
+    "pdf_path": "Files/segmentation-unlearning/Model Collapse Is Not a Bug but a Feature in Machine Unlearning for LLMs.pdf",
+    "md_path": "Model Collapse Is Not a Bug but a Feature in Machine Unlearning for LLMs.md",
+    "arxiv_id": "2507.04219",
+    "doi": "10.48550/arXiv.2507.04219",
+    "year": 2026
+  },
+  {
+    "paper_id": "349461d60b4d3d34dc97147e4b9ec2b9bd611be8",
+    "title": "Kvasir-SEG: A Segmented Polyp Dataset",
+    "pdf_path": "Files/segmentation-unlearning/Kvasir-SEG A Segmented Polyp Dataset.pdf",
+    "md_path": "Kvasir-SEG A Segmented Polyp Dataset.md",
+    "arxiv_id": "1911.07069",
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "3a8972e64affdec167a1f0fd259ce4d104bcd86e",
+    "title": "The heterogeneous multiscale method",
+    "pdf_path": "Files/homogenisation/Abdulle_et_al_2012_The_heterogeneous_multiscale_method.pdf",
+    "md_path": "The heterogeneous multiscale method.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2012
+  },
+  {
+    "paper_id": "40de5fd0c5b9d1fdc890b4b100845b716b676759",
+    "title": "When to use Graphs in RAG: A Comprehensive Analysis for Graph Retrieval-Augmented Generation",
+    "pdf_path": "Files/knowledge-retrieval/2506.05690v3.pdf",
+    "md_path": "When to use Graphs in RAG - A Comprehensive Analysis for Graph Retrieval-Augmented Generation.md",
+    "arxiv_id": "2506.05690",
+    "doi": "10.48550/arXiv.2506.05690",
+    "year": 2025
+  },
+  {
+    "paper_id": "4308208fac24626e0c927ee728038aadc4e87266",
+    "title": "HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models",
+    "pdf_path": "Files/knowledge-retrieval/2405.14831v3.pdf",
+    "md_path": "HippoRAG - Neurobiologically inspired long-term memory for large language models.md",
+    "arxiv_id": "2405.14831",
+    "doi": "10.48550/arXiv.2405.14831",
+    "year": 2024
+  },
+  {
+    "paper_id": "497ee61377433584c8b5d45d04024dc49653413e",
+    "title": "Privacy Amplification by Mixing and Diffusion Mechanisms",
+    "pdf_path": "Files/segmentation-unlearning/Privacy Amplification by Mixing and Diffusion Mechanisms.pdf",
+    "md_path": "Privacy Amplification by Mixing and Diffusion Mechanisms.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2019
+  },
+  {
+    "paper_id": "49c56b9e05f1e45efa396874250e03d8e9aaac13",
+    "title": "A Fine-Grain Error Map Prediction and Segmentation Quality Assessment Framework for Whole-Heart Segmentation",
+    "pdf_path": "Files/segmentation-unlearning/A Fine-Grain Error Map Prediction and Segmentation Quality Assessment Framework.pdf",
+    "md_path": "A Fine-Grain Error Map Prediction and Segmentation Quality Assessment Framework.md",
+    "arxiv_id": "1907.12244",
+    "doi": "10.1007/978-3-030-32245-8_61",
+    "year": 2019
+  },
+  {
+    "paper_id": "4be4782d50e19a0d7e77ab4b5e0cd3dc0bd5bf3a",
+    "title": "DivideMix: Learning with Noisy Labels as Semi-supervised Learning",
+    "pdf_path": "Files/segmentation-unlearning/DivideMix Learning with Noisy Labels as Semi-supervised Learning.pdf",
+    "md_path": "DivideMix Learning with Noisy Labels as Semi-supervised Learning.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "5006a3e647da1e691d51a8d82f10b3fca2d0f41e",
+    "title": "nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation",
+    "pdf_path": "Files/segmentation-unlearning/nnU-Net a self-configuring method for deep learning-based biomedical image segme.pdf",
+    "md_path": "nnU-Net a self-configuring method for deep learning-based biomedical image segmentation.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "570a341a8fd511cf0e05687110f053aaac646010",
+    "title": "Towards Unbounded Machine Unlearning",
+    "pdf_path": "Files/segmentation-unlearning/Towards Unbounded Machine Unlearning.pdf",
+    "md_path": "Towards Unbounded Machine Unlearning.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2023
+  },
+  {
+    "paper_id": "576a705051fb839f514f52583dd9fd470a1e0011",
+    "title": "Certified Machine Unlearning via Noisy Stochastic Gradient Descent",
+    "pdf_path": "Files/segmentation-unlearning/Certified Machine Unlearning via Noisy Stochastic Gradient Descent.pdf",
+    "md_path": "Certified Machine Unlearning via Noisy Stochastic Gradient Descent.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2024
+  },
+  {
+    "paper_id": "59027b574cd02905cbdcb1fd8feefb878cc49c8d",
+    "title": "A Survey of Machine Unlearning",
+    "pdf_path": "Files/segmentation-unlearning/A Survey of Machine Unlearning.pdf",
+    "md_path": "A Survey of Machine Unlearning.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2025
+  },
+  {
+    "paper_id": "5dd170f0705f0e1a657021b5427ca983cccd7a59",
+    "title": "Renyi Divergence and Kullback-Leibler Divergence",
+    "pdf_path": "Files/segmentation-unlearning/Renyi Divergence and Kullback-Leibler Divergence.pdf",
+    "md_path": "Renyi Divergence and Kullback-Leibler Divergence.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2014
+  },
+  {
+    "paper_id": "6dc1bb04eb0df303b1820ff1de15ab78f554cfff",
+    "title": "Negative Preference Optimization: From Catastrophic Collapse to Effective Unlearning",
+    "pdf_path": "Files/segmentation-unlearning/Negative Preference Optimization.pdf",
+    "md_path": "Negative Preference Optimization From Catastrophic Collapse to Effective Unlearning.md",
+    "arxiv_id": "2404.05868",
+    "doi": null,
+    "year": 2024
+  },
+  {
+    "paper_id": "721e959a9266bed93cb0ac2351ee082fc7e6a285",
+    "title": "Certified Unlearning for Neural Networks",
+    "pdf_path": "Files/segmentation-unlearning/Certified Unlearning for Neural Networks.pdf",
+    "md_path": "Certified Unlearning for Neural Networks.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2025
+  },
+  {
+    "paper_id": "89e83cf5f3ee0d0f42a12b7576b49e1d10605ae1",
+    "title": "Remember What You Want to Forget Algorithms for Machine Unlearning",
+    "pdf_path": "Files/segmentation-unlearning/Remember What You Want to Forget Algorithms for Machine Unlearning.pdf",
+    "md_path": "Remember What You Want to Forget Algorithms for Machine Unlearning.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "955d7bb68f2c50d657fa4132f57a4fc9988a9159",
+    "title": "Reducing Reliance on Spurious Features in Medical Image Classification with Spatial Specificity",
+    "pdf_path": "Files/segmentation-unlearning/Reducing Reliance on Spurious Features in Medical Image Classification with Spatial Specificity.pdf",
+    "md_path": "Reducing Reliance on Spurious Features in Medical Image Classification with Spatial Specificity.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2022
+  },
+  {
+    "paper_id": "JAKUBOWSKI1997",
+    "title": "The almost sure Skorokhod representation for subsequences in nonmetric spaces",
+    "pdf_path": "Files/measure convergence/The almost sure Skorokhod representation for subsequences in nonmetric spaces.pdf",
+    "md_path": "The almost sure Skorokhod representation for subsequences in nonmetric spaces.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 1997
+  },
+  {
+    "paper_id": "JAKUBOWSKI2023",
+    "title": "Probability on Submetric Spaces",
+    "pdf_path": "Files/measure convergence/Probability on Submetric Spaces.pdf",
+    "md_path": "Probability on Submetric Spaces.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2023
+  },
+  {
+    "paper_id": "LIU2022",
+    "title": "Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow",
+    "pdf_path": "Files/diffusion bridge/Flow Straight and Fast.pdf",
+    "md_path": "Flow Straight and Fast.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2022
+  },
+  {
+    "paper_id": "NICHOL2021",
+    "title": "Improved Denoising Diffusion Probabilistic Models",
+    "pdf_path": "Files/diffusion bridge/Improved Denoising Diffusion Probabilistic Models.pdf",
+    "md_path": "Improved Denoising Diffusion Probabilistic Models.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "SHI2023",
+    "title": "Diffusion Schr\u00f6dinger Bridge Matching",
+    "pdf_path": "Files/diffusion bridge/Diffusion Schro\u0308dinger Bridge Matching.pdf",
+    "md_path": "Diffusion Schr\u00f6dinger Bridge Matching.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2023
+  },
+  {
+    "paper_id": "SONG2021",
+    "title": "Score-Based Generative Modeling through Stochastic Differential Equations",
+    "pdf_path": "Files/diffusion bridge/Score-Based Generative Modeling through Stochastic Differential Equations.pdf",
+    "md_path": "Score-Based Generative Modeling through Stochastic Differential Equations.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "aaff68dab0e2cb697bfd54ef2ca9346cfc3197f3",
+    "title": "Unleashing the Strengths of Unlabelled Data in Pan-cancer Abdominal Organ Quantification: the FLARE22 Challenge",
+    "pdf_path": "Files/segmentation-unlearning/Unleashing the Strengths of Unlabelled Data in Pan-cancer Abdominal Organ Quantification the FLARE22 Challenge.pdf",
+    "md_path": "Unleashing the Strengths of Unlabelled Data in Pan-cancer Abdominal Organ Quantification the FLARE22 Challenge.md",
+    "arxiv_id": "2308.05862",
+    "doi": "10.1016/s2589-7500(24)00154-7",
+    "year": 2024
+  },
+  {
+    "paper_id": "anonymous2026",
+    "title": "Towards Certified Shortcut Unlearning in Medical Imaging",
+    "pdf_path": "Files/segmentation-unlearning/Towards Certified Shortcut Unlearning in Medical Imaging.pdf",
+    "md_path": "Towards Certified Shortcut Unlearning in Medical Imaging.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2026
+  },
+  {
+    "paper_id": "anthropelos2024",
+    "title": "Continuous-time Equilibrium Returns in Markets with Price Impact and Transaction Costs",
+    "pdf_path": "Files/transaction-costs/Continuous-time Equilibrium Returns in Markets with Price Impact and Transaction Costs.pdf",
+    "md_path": "Continuous-time Equilibrium Returns in Markets with Price Impact and Transaction Costs.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2024
+  },
+  {
+    "paper_id": "b9a84076be505c6bb3c08bdf5cfafb95e6019c73",
+    "title": "What Can We Learn from Inter-Annotator Variability in Skin Lesion Segmentation?",
+    "pdf_path": "Files/segmentation-unlearning/What Can We Learn from Inter-Annotator Variability in Skin Lesion Segmentation.pdf",
+    "md_path": "What Can We Learn from Inter-Annotator Variability in Skin Lesion Segmentation.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2025
+  },
+  {
+    "paper_id": "burnettwilliams2021",
+    "title": "The Cost of Hedging XVA",
+    "pdf_path": "Files/Deep BSDE methods for XVA/The Cost of Hedging XVA.pdf",
+    "md_path": "The Cost of Hedging XVA.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "c911ba4cf72a8865a9a50d04a40ef20f20003c3e",
+    "title": "Deep Learning for Mean Field Games and Mean Field Control with Applications to Finance",
+    "pdf_path": "Files/transaction-costs/Deep Learning for Mean Field Games and Mean Field Control with Applications to F.pdf",
+    "md_path": "Deep Learning for Mean Field Games and Mean Field Control with Applications to Finance.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "choi2023",
+    "title": "A Multi-agent Targeted Trading Equilibrium with Transaction Costs",
+    "pdf_path": "Files/transaction-costs/A Multi-agent Targeted Trading Equilibrium with Transaction Costs.pdf",
+    "md_path": "A Multi-agent Targeted Trading Equilibrium with Transaction Costs.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2023
+  },
+  {
+    "paper_id": "davila2023",
+    "title": "Optimal Financial Transaction Taxes",
+    "pdf_path": "Files/transaction-costs/Optimal Financial Transaction Taxes.pdf",
+    "md_path": "Optimal Financial Transaction Taxes.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2023
+  },
+  {
+    "paper_id": "dd63a63ef76d23c898f122f0f757ac307b836c19",
+    "title": "Tweedie's Formula and Selection Bias",
+    "pdf_path": "Files/diffusion bridge/tweedie.pdf",
+    "md_path": "Tweedie's Formula and Selection Bias.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2011
+  },
+  {
+    "paper_id": "dd9cc3707fe1e1f85c1fa3963378c745bc75ba86",
+    "title": "Debiasing Skin Lesion Datasets and Models Not So Fast",
+    "pdf_path": "Files/segmentation-unlearning/Debiasing Skin Lesion Datasets and Models Not So Fast.pdf",
+    "md_path": "Debiasing Skin Lesion Datasets and Models Not So Fast.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "de529d9fe4a7a7817815070fa69e033e9ed713a6",
+    "title": "BoxTeacher: Exploring High-Quality Pseudo Labels for Weakly Supervised Instance Segmentation",
+    "pdf_path": "Files/segmentation-unlearning/BoxTeacher.pdf",
+    "md_path": "BoxTeacher Exploring High-Quality Pseudo Labels for Weakly Supervised Instance Segmentation.md",
+    "arxiv_id": "2210.05174",
+    "doi": "10.1109/CVPR52729.2023.00307",
+    "year": 2023
+  },
+  {
+    "paper_id": "dupire1993",
+    "title": "Pricing and Hedging with Smiles",
+    "pdf_path": "Files/diffusion bridge/Pricing and Hedging with Smiles - Dupire 1993.pdf",
+    "md_path": "Pricing and Hedging with Smiles.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 1993
+  },
+  {
+    "paper_id": "dwork2014",
+    "title": "The Algorithmic Foundations of Differential Privacy",
+    "pdf_path": "Files/segmentation-unlearning/The Algorithmic Foundations of Differential Privacy.pdf",
+    "md_path": "The Algorithmic Foundations of Differential Privacy.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2014
+  },
+  {
+    "paper_id": "f945cc091303001ead54088d52a654f87ec9397b",
+    "title": "Contraction of E-gamma Divergence and Its Applications to Privacy",
+    "pdf_path": "Files/segmentation-unlearning/Contraction of E-gamma Divergence and Its Applications to Privacy.pdf",
+    "md_path": "Contraction of E-gamma Divergence and Its Applications to Privacy.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "fa52f2f118fb762f48ed0e1167876e5282e66284",
+    "title": "A Case for Reframing Automated Medical Image Classification as Segmentation",
+    "pdf_path": "Files/segmentation-unlearning/A Case for Reframing Automated Medical Image Classification as Segmentation.pdf",
+    "md_path": "A Case for Reframing Automated Medical Image Classification as Segmentation.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2023
+  },
+  {
+    "paper_id": "garleanu2009",
+    "title": "Portfolio Choice and Pricing in Illiquid Markets",
+    "pdf_path": "Files/transaction-costs/Portfolio Choice and Pricing in Illiquid Markets.pdf",
+    "md_path": "Portfolio Choice and Pricing in Illiquid Markets.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2009
+  },
+  {
+    "paper_id": "garleanu2013",
+    "title": "Dynamic Trading with Predictable Returns and Transaction Costs",
+    "pdf_path": "Files/transaction-costs/Dynamic Trading with Predictable Returns and Transaction Costs.pdf",
+    "md_path": "Dynamic Trading with Predictable Returns and Transaction Costs.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2013
+  },
+  {
+    "paper_id": "gonon2020",
+    "title": "Asset Pricing with General Transaction Costs",
+    "pdf_path": "Files/transaction-costs/Asset Pricing with General Transaction Costs.pdf",
+    "md_path": "Asset Pricing with General Transaction Costs.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "gyongy1986",
+    "title": "Mimicking the One-Dimensional Marginal Distributions of Processes Having an Ito Differential",
+    "pdf_path": "Files/diffusion bridge/Gyongy 1986 - Mimicking Marginal Distributions.pdf",
+    "md_path": "Mimicking the One-Dimensional Marginal Distributions of Processes Having an Ito Differential.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 1986
+  },
+  {
+    "paper_id": "herdegen2018",
+    "title": "Equilibrium Returns with Transaction Costs",
+    "pdf_path": "Files/transaction-costs/Equilibrium Returns with Transaction Costs.pdf",
+    "md_path": "Equilibrium Returns with Transaction Costs.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2018
+  },
+  {
+    "paper_id": "herdegen2020",
+    "title": "Equilibrium Asset Pricing with Transaction Costs",
+    "pdf_path": "Files/transaction-costs/Equilibrium Asset Pricing with Transaction Costs.pdf",
+    "md_path": "Equilibrium Asset Pricing with Transaction Costs.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "izzo-approximate-deletion-2021",
+    "title": "Approximate Data Deletion from Machine Learning Models",
+    "pdf_path": "Files/fairness-unlearning/Izzo_2021_Approximate_Data_Deletion.pdf",
+    "md_path": "Approximate Data Deletion from Machine Learning Models.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2021
+  },
+  {
+    "paper_id": "mironov2017",
+    "title": "Renyi Differential Privacy",
+    "pdf_path": "Files/segmentation-unlearning/Renyi Differential Privacy.pdf",
+    "md_path": "Renyi Differential Privacy.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2017
+  },
+  {
+    "paper_id": "muhlekarbe2020",
+    "title": "Asset Pricing with Heterogeneous Beliefs and Illiquidity",
+    "pdf_path": "Files/transaction-costs/Asset Pricing with Heterogeneous Beliefs and Illiquidity.pdf",
+    "md_path": "Asset Pricing with Heterogeneous Beliefs and Illiquidity.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2020
+  },
+  {
+    "paper_id": "shelley2023",
+    "title": "Transaction Tax in a General Equilibrium Model",
+    "pdf_path": "Files/transaction-costs/Transaction Tax in a General Equilibrium Model.pdf",
+    "md_path": "Transaction Tax in a General Equilibrium Model.md",
+    "arxiv_id": null,
+    "doi": null,
+    "year": 2023
+  }
+]
