@@ -74,7 +74,10 @@ def kg_extracted(context) -> MaterializeResult:
         model_name=openai_cfg.extraction_model,
         model_params={"reasoning_effort": "minimal"},
     )
-    splitter = FixedSizeSplitter(chunk_size=1500, chunk_overlap=200)
+    # NOTE: FixedSizeSplitter measures CHARACTERS, not tokens. ~4 chars/token for English.
+    # 4800 chars ≈ 1200 tokens, matching Microsoft GraphRAG's default for academic content;
+    # 800 chars (~17%) overlap preserves cross-chunk coherence.
+    splitter = FixedSizeSplitter(chunk_size=4800, chunk_overlap=800)
 
     driver = new.get_driver()
     runs: list[dict] = []
@@ -135,6 +138,23 @@ def kg_extracted(context) -> MaterializeResult:
                 doi=part.get("doi"),
                 year=part.get("year"),
             )
+
+        # Bridge our canonical Paper/Book node to the Document(s) SimpleKGPipeline
+        # created. SimpleKGPipeline writes Document.path = the local temp file path
+        # (which always ends with "<paper_id>.pdf" or "<paper_id>.md"); we match on
+        # that suffix to link them. Without this edge, downstream assets (e.g.
+        # paper_summary) cannot navigate from a Paper to its chunks.
+        canonical_label = "Book" if kind == "book" else "Paper"
+        s.run(
+            f"""
+            MATCH (canonical:{canonical_label} {{id: $paper_id}})
+            MATCH (d:Document)
+            WHERE d.path ENDS WITH ($paper_id + '.pdf')
+               OR d.path ENDS WITH ($paper_id + '.md')
+            MERGE (canonical)-[:HAS_DOCUMENT]->(d)
+            """,
+            paper_id=paper_id,
+        )
 
     return MaterializeResult(
         metadata={
