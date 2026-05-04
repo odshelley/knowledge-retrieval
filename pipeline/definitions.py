@@ -13,20 +13,28 @@ from pipeline.resources import (
 )
 
 # Asset modules — populated in subsequent tasks
-from pipeline.assets import pdf_blob, v1_md_blob, kg_extracted, structural_overlay, paper_summary
+from pipeline.assets import (
+    kg_extracted,
+    legacy_mirror,
+    paper_summary,
+    pdf_blob,
+    structural_overlay,
+    v1_md_blob,
+)
 from pipeline.sensors import minio_pdf_sensor
-from pipeline.jobs import bulk_reingest
+from pipeline.jobs import bulk_reingest, legacy_mirror_job
 
 defs = Definitions(
     assets=[
         pdf_blob.pdf_blob,
         v1_md_blob.v1_md_blob,
+        legacy_mirror.legacy_graph_mirror,
         kg_extracted.kg_extracted,
         structural_overlay.structural_overlay,
         paper_summary.paper_summary,
     ],
     sensors=[minio_pdf_sensor],
-    jobs=[bulk_reingest],
+    jobs=[bulk_reingest, legacy_mirror_job],
     resources={
         "neo4j_new": new_neo4j_from_env(),
         "neo4j_legacy": legacy_neo4j_from_env(),

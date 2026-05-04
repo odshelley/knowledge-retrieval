@@ -14,3 +14,11 @@ notebooks/.ipynb_checkpoints/
 *.egg-info/
 dist/
 build/
+
+# Working / scratch outputs from discover_partitions.py and pdfpath workflows
+data/partitions_unresolved.json
+data/pdfpath_proposals.json
+data/pdfpath_to_apply.json
+
+# External tutorial — its own git repo, not part of this project
+neo4j_course/

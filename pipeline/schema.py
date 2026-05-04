@@ -1,49 +1,98 @@
 """Knowledge-graph schema for the new Aura DB.
 
-Used by:
-- SimpleKGPipeline (NODE_TYPES, RELATIONSHIP_TYPES, PATTERNS)
-- scripts/init_neo4j.py (INIT_CYPHER) to apply constraints + vector index
+Mirrors the legacy alethograph DB 1:1 (labels, relationship types, directions).
+Source of truth: ``/tmp/legacy_schema.json`` (regenerable via the snippet in
+``pipeline/assets/legacy_mirror.py``).
 
-Topic nodes are seeded by structural_overlay (not LLM extraction) — see spec §6.
+Used by:
+- SimpleKGPipeline (NODE_TYPES, RELATIONSHIP_TYPES, PATTERNS) so LLM extractions
+  match the legacy graph shape.
+- scripts/init_neo4j.py (INIT_CYPHER) for constraints + the chunk vector index.
+- pipeline/assets/legacy_mirror.py (LABEL_KEY) for the structural mirror's MERGE keys.
 """
 from __future__ import annotations
 
 NODE_TYPES = [
     "Paper",
+    "Book",
     "Author",
     "Concept",
-    "Method",
-    "Theorem",
-    "Definition",
     "Topic",
+    "Researcher",
+    "Idea",
 ]
 
+# Verbatim from legacy DB. Verbs are subject-first
+# (e.g. "Author AUTHORED Paper", "Paper HAS_TOPIC Topic").
 RELATIONSHIP_TYPES = [
-    "AUTHORED_BY",
+    "AUTHORED",
     "CITES",
-    "INTRODUCES",
-    "USES",
-    "BUILDS_ON",
-    "IN_TOPIC",
+    "HAS_TOPIC",
+    "BROADER_THAN",
+    "RELATED_TO",
+    "BELONGS_TO",
+    "DERIVED_FROM",
+    "DISCUSSES",
+    "COVERED_IN",
+    "COVERS",
+    "COVERS_TOPIC",
+    "REFERENCES",
+    "STUDIED_FOR",
+    "STUDIES",
+    "KNOWS",
+    "PROPOSED",
+    "USES_BOOK",
+    "INVOLVES",
+    "EVIDENCED_BY",
 ]
 
+# Verbatim patterns from the legacy DB (start, rel, end).
 PATTERNS: list[tuple[str, str, str]] = [
-    ("Paper", "AUTHORED_BY", "Author"),
-    ("Paper", "CITES", "Paper"),
-    ("Paper", "INTRODUCES", "Concept"),
-    ("Paper", "INTRODUCES", "Method"),
-    ("Paper", "INTRODUCES", "Theorem"),
-    ("Paper", "INTRODUCES", "Definition"),
-    ("Paper", "USES", "Method"),
-    ("Paper", "USES", "Concept"),
-    ("Method", "BUILDS_ON", "Method"),
-    ("Concept", "BUILDS_ON", "Concept"),
-    ("Paper", "IN_TOPIC", "Topic"),
+    ("Author",     "AUTHORED",     "Paper"),
+    ("Author",     "AUTHORED",     "Book"),
+    ("Paper",      "CITES",        "Paper"),
+    ("Paper",      "HAS_TOPIC",    "Topic"),
+    ("Paper",      "DISCUSSES",    "Concept"),
+    ("Paper",      "STUDIES",      "Topic"),
+    ("Book",       "HAS_TOPIC",    "Topic"),
+    ("Book",       "COVERS",       "Concept"),
+    ("Book",       "COVERS_TOPIC", "Topic"),
+    ("Book",       "STUDIED_FOR",  "Topic"),
+    ("Book",       "REFERENCES",   "Concept"),
+    ("Concept",    "DERIVED_FROM", "Paper"),
+    ("Concept",    "DERIVED_FROM", "Topic"),
+    ("Concept",    "RELATED_TO",   "Concept"),
+    ("Concept",    "BELONGS_TO",   "Topic"),
+    ("Concept",    "HAS_TOPIC",    "Topic"),
+    ("Concept",    "COVERED_IN",   "Book"),
+    ("Topic",      "BROADER_THAN", "Topic"),
+    ("Topic",      "RELATED_TO",   "Topic"),
+    ("Researcher", "KNOWS",        "Concept"),
+    ("Researcher", "STUDIES",      "Paper"),
+    ("Researcher", "PROPOSED",     "Idea"),
+    ("Researcher", "USES_BOOK",    "Book"),
+    ("Researcher", "HAS_TOPIC",    "Topic"),
+    ("Idea",       "INVOLVES",     "Concept"),
+    ("Idea",       "EVIDENCED_BY", "Paper"),
+    ("Idea",       "STUDIES",      "Topic"),
+    ("Idea",       "HAS_TOPIC",    "Topic"),
 ]
 
 INIT_CYPHER = """
 CREATE CONSTRAINT paper_id IF NOT EXISTS
   FOR (p:Paper) REQUIRE p.id IS UNIQUE;
+
+CREATE CONSTRAINT book_id IF NOT EXISTS
+  FOR (b:Book) REQUIRE b.id IS UNIQUE;
+
+CREATE CONSTRAINT concept_name IF NOT EXISTS
+  FOR (c:Concept) REQUIRE c.name IS UNIQUE;
+
+CREATE CONSTRAINT idea_id IF NOT EXISTS
+  FOR (i:Idea) REQUIRE i.id IS UNIQUE;
+
+CREATE CONSTRAINT researcher_name IF NOT EXISTS
+  FOR (r:Researcher) REQUIRE r.name IS UNIQUE;
 
 CREATE CONSTRAINT chunk_id IF NOT EXISTS
   FOR (c:Chunk) REQUIRE c.id IS UNIQUE;
