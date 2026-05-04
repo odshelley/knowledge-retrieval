@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 import botocore.exceptions
-from dagster import AssetIn, MaterializeResult, MetadataValue, asset
+from dagster import MaterializeResult, MetadataValue, asset
 from neo4j_graphrag.embeddings import OpenAIEmbeddings
 from neo4j_graphrag.experimental.components.text_splitters.fixed_size_splitter import (
     FixedSizeSplitter,
@@ -46,16 +46,19 @@ async def _run_pipeline_for_file(
             "patterns": PATTERNS,
         },
     )
-    result = await kg.run_async(file_path=str(file_path))
+    if from_pdf:
+        result = await kg.run_async(file_path=str(file_path))
+    else:
+        result = await kg.run_async(text=file_path.read_text(encoding="utf-8"))
     return {"chunks": getattr(result, "chunks", None), "raw": str(result)[:200]}
 
 
 @asset(
     partitions_def=partitions_def(),
-    ins={"pdf_blob": AssetIn(), "v1_md_blob": AssetIn()},
+    deps=["pdf_blob", "v1_md_blob"],
     required_resource_keys={"minio", "neo4j_new", "openai"},
 )
-def kg_extracted(context, pdf_blob, v1_md_blob) -> MaterializeResult:
+def kg_extracted(context) -> MaterializeResult:
     """Runs SimpleKGPipeline on the PDF + v1 md (if present) for this paper."""
     paper_id = context.partition_key
     part = get_partition(paper_id)
@@ -71,7 +74,7 @@ def kg_extracted(context, pdf_blob, v1_md_blob) -> MaterializeResult:
         model_name=openai_cfg.extraction_model,
         model_params={"reasoning_effort": "minimal"},
     )
-    splitter = FixedSizeSplitter(chunk_size=500, chunk_overlap=100)
+    splitter = FixedSizeSplitter(chunk_size=1500, chunk_overlap=200)
 
     driver = new.get_driver()
     runs: list[dict] = []
@@ -90,26 +93,53 @@ def kg_extracted(context, pdf_blob, v1_md_blob) -> MaterializeResult:
                 driver, embedder, llm, splitter, md_local, from_pdf=False, database=new.database
             )))
 
-    # MERGE the canonical Paper node here so structural_overlay can rely on it existing.
+    # MERGE the canonical node so structural_overlay can rely on it existing.
+    # Book partitions land as :Book; everything else as :Paper.
+    kind = part.get("kind", "paper")
     with driver.session(database=new.database) as s:
-        s.run(
-            """
-            MERGE (p:Paper {id: $paper_id})
-            SET p.title = $title,
-                p.arxiv_id = $arxiv_id,
-                p.doi = $doi,
-                p.year = $year
-            """,
-            paper_id=paper_id,
-            title=part["title"],
-            arxiv_id=part.get("arxiv_id"),
-            doi=part.get("doi"),
-            year=part.get("year"),
-        )
+        if kind == "book":
+            s.run(
+                """
+                MERGE (b:Book {id: $paper_id})
+                SET b.title = $title,
+                    b.year = $year,
+                    b.isbn = $isbn,
+                    b.edition = $edition,
+                    b.publisher = $publisher,
+                    b.authors = $authors,
+                    b.topics_studied = $topics_studied,
+                    b.chapters_read = $chapters_read
+                """,
+                paper_id=paper_id,
+                title=part["title"],
+                year=part.get("year"),
+                isbn=part.get("isbn"),
+                edition=part.get("edition"),
+                publisher=part.get("publisher"),
+                authors=part.get("authors"),
+                topics_studied=part.get("topics_studied"),
+                chapters_read=part.get("chapters_read"),
+            )
+        else:
+            s.run(
+                """
+                MERGE (p:Paper {id: $paper_id})
+                SET p.title = $title,
+                    p.arxiv_id = $arxiv_id,
+                    p.doi = $doi,
+                    p.year = $year
+                """,
+                paper_id=paper_id,
+                title=part["title"],
+                arxiv_id=part.get("arxiv_id"),
+                doi=part.get("doi"),
+                year=part.get("year"),
+            )
 
     return MaterializeResult(
         metadata={
             "paper_id": paper_id,
+            "kind": kind,
             "files_processed": MetadataValue.int(len(runs)),
             "schema_version": "v1",
         },
