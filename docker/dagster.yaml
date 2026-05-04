@@ -16,7 +16,11 @@ run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator
   config:
-    max_concurrent_runs: 4
+    # OpenAI gpt-5-nano on a low rate-limit tier (200k TPM as of May 2026) gets
+    # tripped easily when multiple kg_extracted partitions run in parallel —
+    # each one fans out N concurrent LLM calls inside SimpleKGPipeline. Keep
+    # this at 1 until you bump the OpenAI tier (or switch extraction model).
+    max_concurrent_runs: 1
 
 run_launcher:
   module: dagster.core.launcher
