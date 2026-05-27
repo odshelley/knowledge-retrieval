@@ -41,7 +41,8 @@ retired (see §11).
 - **Parse** each document with a math-aware, self-hosted parser (Docling), preserving equations as LaTeX, with OCR for scanned pages.
 - **Chunk** (equation-aware) and **embed** chunks.
 - **Extract** entities and relationships against a **predefined schema** (the alethograph schema, extended — §6).
-- Produce a **rich structured analysis** per paper (alethograph-skill quality) *and* promote mathematical content (definitions, theorems) to **first-class graph nodes** (Option "C").
+- **Enrich bibliography via Semantic Scholar** (reusing `research_tools.py`): abstract, TLDR, citation counts, author IDs, and `CITES` edges from the paper's references — mirroring the research skill, which sources metadata *and citations* from S2, not the PDF (§15).
+- Produce a **rich structured analysis** per paper matching the **research skill's note template** *and* promote mathematical content (definitions, theorems) to **first-class graph nodes** (Option "C") (§15).
 - **Resolve entities** so the same concept doesn't become duplicate nodes, with every decision recorded.
 - Write everything to `6b371650`.
 
@@ -52,6 +53,8 @@ retired (see §11).
 - **Website integration.** The alethograph-explorer site will consume the analyses, but the web adapter is an explicit, agreed **downstream task** (§9), not part of v1.
 - **Local/self-hosted LLMs.** Extraction + embeddings stay on hosted APIs (decision in §8).
 - **First-class equation/notation querying beyond definitions & results** (e.g. every inline formula as a node). Out of scope.
+- **Interactive/curational graph layers.** Topic-DAG inference (`BROADER_THAN`/`RELATED_TO` placement), researcher auto-linking, and idea-seed proposals are *interactive* steps in the research skill that don't fit unattended batch — deferred (§15). Consistent with the earlier note that curated layers don't emerge from raw documents.
+- **Per-paper learning goals.** The research skill shapes each summary around a learning goal it asks the user for. Batch has no per-paper human; it uses a fixed **standing analysis brief** instead (§15).
 
 ---
 
@@ -68,6 +71,7 @@ retired (see §11).
 9. **Analysis = Option C**: rich narrative analysis **and** first-class `Definition`/`Result` nodes.
 10. **Analysis storage**: canonical structured JSON (math as LaTeX) is the source of truth; HTML (KaTeX) is a render target for the website.
 11. **Target DB: `6b371650` (alethograph), wiped and rebuilt.** Snapshot first; re-assert constraints/indexes. `bd4528e1` (portmanteau) untouched.
+12. **Leverage the research skill** — port its per-paper note template, its `#concept`/`#method` typing, its top-3-references citation strategy, and **reuse `research_tools.py`'s Semantic Scholar + graph-write functions** (pointed at `6b371650`), rather than reinventing extraction (§15). The skill's *agentic orchestration* is replaced by automated assets; its *proven tools and templates* are reused.
 
 ---
 
@@ -126,10 +130,13 @@ Each asset is keyed by **content hash** (so re-runs are idempotent) and has a si
 - **Mode routing:** detect whether the PDF has an extractable text layer → **text mode**; else **OCR/VLM mode** (Granite-Docling). Equations emitted as LaTeX; tables as structured output.
 - **Failure:** if parse yields empty/degenerate output (e.g. image PDF that still failed), **quarantine** the partition with a surfaced error — do **not** silently skip (fixes the current "image PDF → 0 chunks → silent skip" bug).
 
-### 5.4 `triage_metadata`
-- **In:** `parsed_document`. **Out:** `{is_paper, title, authors[], year, arxiv_id?, doi?}`.
-- Confirms the document is a paper; extracts bibliographic metadata (drives `Paper` + `Author` nodes and dedupe by arXiv/DOI/hash). Rejects non-papers and exact-duplicate hashes.
+### 5.4 `triage_metadata` + Semantic Scholar enrichment
+- **In:** `parsed_document`. **Out:** `{is_paper, title, authors[], year, arxiv_id?, doi?, s2_id?, abstract, tldr, citation_count, influential_citation_count, references[]}`.
+- Confirms the document is a paper and extracts bibliographic metadata from the parsed front-matter (title/authors/year/arXiv/DOI); rejects non-papers and exact-duplicate hashes.
+- **Then enriches via Semantic Scholar** (reusing `research_tools.py`'s `search`/`paper`/`references` functions): resolve the paper on S2 by arXiv-id/DOI/title; pull abstract, TLDR, citation counts, and S2 author ids. This mirrors the research skill — metadata and citations come from **S2, not the PDF**.
+- **Citations:** create `Paper CITES Paper` edges to the top references (the skill uses top-3 by influential-citation count) **only for referenced papers already present in the graph**; otherwise record the reference for backfill (`db-backfill-citations` logic) when those papers are later ingested.
 - v1 has no paper-vs-book branch (papers only).
+- **Connection note:** reuse `research_tools.py`'s logic but run graph writes through the pipeline's Neo4j resource (→ `6b371650`); `research_tools.py` defaults to portmanteau via `research-neo4j.json`, so wire the connection explicitly rather than relying on its default.
 
 ### 5.5 `chunks`
 - **In:** `parsed_document` markdown. **Out:** ordered chunks as a Dagster asset materialization (IO manager); their final home is Neo4j `Chunk` nodes (§5.6). Each chunk has a stable `Chunk.id` = `{paper_id}:{position}`.
@@ -141,7 +148,9 @@ Each asset is keyed by **content hash** (so re-runs are idempotent) and has a si
 ### 5.7 `extracted_graph`
 - **In:** `chunks` (+ metadata). **Out:** candidate entities + relationships constrained to the extended schema (§6).
 - **Bespoke extraction:** our own prompts and post-validation that drop any (start,rel,end) triple not in `PATTERNS`. Hosted LLM; model chosen by the quality evaluation (§8).
-- Produces: `Concept`s, `Paper CITES Paper`, `Paper DISCUSSES/STUDIES …`, plus `Definition` and `Result` candidates (§6).
+- **Ported from the research skill** (§15): target **3–7 concepts per paper**, each **typed `#concept` vs `#method`** (theoretical idea/object/framework vs implementable algorithm/technique) carried on `Concept.tags`; concepts are "self-contained" (make sense without the source paper). Create `Concept DERIVED_FROM Paper` so derivation count is trackable (single-source concepts are flagged thin, per the skill's health checks).
+- Prompt design: start from `spec/03-extraction-prompts.md`'s JSON-extraction scaffold (system/user/gleaning prompts, confidence thresholds), but **swap in alethograph's label vocabulary and ~5 alethograph few-shot exemplars** (spec/03's exemplars are quant-wiki, not papers).
+- Produces: typed `Concept`s, `Paper DISCUSSES Concept` / `Paper STUDIES Topic`, plus `Definition` and `Result` candidates (§6). (`CITES` comes from S2 in §5.4, not from chunk extraction.)
 
 ### 5.8 `resolved_entities`
 - **In:** `extracted_graph` candidates. **Out:** each candidate mapped to either an existing canonical node id or "create new" — with a logged decision.
@@ -152,9 +161,10 @@ Each asset is keyed by **content hash** (so re-runs are idempotent) and has a si
 - Idempotent: keyed by `Paper.id`, `Concept.name`, `Chunk.id`, etc. Re-running a partition converges, never duplicates.
 
 ### 5.10 `paper_analysis`
-- **In:** `parsed_document` (+ `extracted_graph`). **Out:** structured analysis (Claude), written as (a) a `Summary` node referencing (b) a canonical JSON artifact in MinIO with math as LaTeX.
-- **Fields (papers):** motivation, contributions, method, key_results, limitations, related_work, **definitions[]**, **results[]** (theorem/lemma/proposition/corollary statements, each with LaTeX).
+- **In:** `parsed_document`, S2 metadata (§5.4), `extracted_graph`. **Out:** structured analysis (Claude), written as (a) a `Summary` node referencing (b) a canonical JSON artifact in MinIO with math as LaTeX.
+- **Fields = the research skill's note template** (§15), so the output is interchangeable with what the skill produces (and the website can render the same shape): frontmatter (aliases/citeKey, year, topics, authors, venue, url, `semantic_scholar_id`, citation counts, `tldr`), **Abstract**, **Summary**, **Key Contributions**, **Methodology**, **Key Findings**, **Important References** (top-3 cited), **Atomic Notes** (links to the typed concept/method nodes) — **plus** `definitions[]` and `results[]` (the Option-C extension), each with LaTeX.
 - The `definitions[]`/`results[]` here are the same items promoted to `Definition`/`Result` nodes — extracted once, surfaced both as queryable nodes and as analysis content.
+- **No per-paper learning goal** (batch): the Summary is written against a fixed **standing analysis brief** instead of the skill's interactive Step-C prompt (§15).
 
 ---
 
@@ -259,3 +269,35 @@ Also add a `Summary` node + `Paper HAS_SUMMARY Summary` (the current pipeline cr
 - **Extraction quality without curated wikilinks** — the curated vault previously guaranteed clean entity names; from raw text, the resolver (§7) carries more weight. Conservative splitting + the decision trail are the safety net.
 - **Resolution thresholds** (HIGH/LOW) need tuning on real data; start conservative.
 - **Definition/Result extraction precision** — promoting math objects to nodes is new; acceptable if precision is high even at modest recall for v1.
+- **Parity with the research skill** — see §15. The pipeline is unattended batch, the skill is interactive-agentic; some curational outputs are deferred by design, not by oversight.
+
+---
+
+## 15. Parity with the research skill
+
+The alethograph `research` skill (`~/.claude/plugins/marketplaces/alethograph/skills/research/`)
+worked well and is the quality bar. It is **agentic and interactive**: Claude reads the PDF
+(20-page chunks) shaped by a per-paper *learning goal*, synthesises the note, hand-picks 3–7
+concepts, and proposes topic-DAG placements / idea seeds for user review. This pipeline is
+**unattended batch**. The strategy is therefore: **reuse the skill's proven tools and
+templates; replace only its agentic orchestration.**
+
+### Reuse directly (port / call)
+- **Per-paper note template** → `paper_analysis` output fields (§5.10): frontmatter, Abstract, Summary, Key Contributions, Methodology, Key Findings, Important References (top-3), Atomic Notes. Output is interchangeable with the skill's notes, so the website stays compatible.
+- **Concept typing** → `#concept` vs `#method` on `Concept.tags`, 3–7/paper, self-contained (§5.7).
+- **Semantic Scholar enrichment + citation strategy** → `research_tools.py`'s `search`/`paper`/`references`; abstract, TLDR, citation counts, author ids, and `CITES` from top-3 references (§5.4). *Metadata and citations come from S2, not the PDF — this was the biggest gap in the first draft.*
+- **Graph-write logic** → reuse `research_tools.py`'s `db-add-paper`/`db-add-concept`/`db-cite-paper`/… Cypher, but run through the pipeline's Neo4j resource pointed at `6b371650` (not its default `research-neo4j.json` → portmanteau connection).
+- **`DERIVED_FROM` derivation tracking** and the skill's health-check notions (thin/single-source concepts) inform the resolver and later review.
+
+### Replace with an automated equivalent
+- **Per-paper learning goal** → a fixed **standing analysis brief** (a project-level prompt) shapes every Summary instead of an interactive Step-C question.
+- **Interactive concept dedup/enrichment** → the conservative embedding resolver + Postgres decision trail (§7).
+
+### Deferred (interactive/curational — don't fit unattended batch yet)
+- **Topic-DAG inference** (`BROADER_THAN`/`RELATED_TO` placement with confidence + provenance).
+- **Researcher auto-linking** (topic-match) and **Idea-seed proposals** (speculative, scored).
+- These are exactly the "curated layers" flagged earlier as not emerging from raw documents. They remain the province of the alethograph *plugin* until a later phase adds an automated or review-gated version.
+
+### Net answer to "will it extract the same stuff?"
+- **Document-derived backbone — yes:** same note template, typed concepts, citations, S2 metadata, `Paper`/`Author`/`Concept`/`Topic` + `AUTHORED`/`CITES`/`HAS_TOPIC`/`DISCUSSES`/`DERIVED_FROM`, plus the new `Definition`/`Result` nodes.
+- **Curational layers — no (by design, deferred):** topic-DAG, researcher links, idea seeds, and learning-goal-personalised summaries are not reproduced unattended in v1.
