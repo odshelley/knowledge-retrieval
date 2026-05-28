@@ -34,22 +34,39 @@ Everything is keyed by content hash, so re-running a document converges (idempot
 
 ## Pipeline (Dagster asset DAG)
 
-Per-document partition, keyed by file SHA-256. Writes are serialized (`max_concurrent_runs = 1`).
+Per-document partition, keyed by file SHA-256; writes are serialized (`max_concurrent_runs = 1`).
 
-```
-raw_blob ─▶ parsed_document ─┬─▶ triage_metadata (+Semantic Scholar) ─┐
- PDF→MinIO   Docling          │   Paper/Author identity, refs stash    │
- by hash     text/VLM         │                                        │
-                              ├─▶ chunks ─────────────────────────────┤
-                              │   equation-aware split + embed         │
-                              │   (artifact only)                      ├─▶ graph_write
-                              ├─▶ extracted_graph ─▶ resolved_entities ┘   SOLE writer:
-                              │   typed concepts/    pgvector decide-only   Chunk/Concept(+pgvector)/
-                              │   definitions/results (decision trail)      Definition/Result/CITES
-                              └─▶ paper_analysis  (Claude → Summary node + canonical JSON; parallel)
+```mermaid
+flowchart LR
+    sched["daily schedule<br/>scan SOURCE_DIR · 1 partition per new PDF"]:::sched
+    raw["raw_blob<br/>PDF → MinIO, keyed by SHA-256"]
+    parse["parsed_document<br/>Docling (text / VLM) → markdown + LaTeX"]
+    triage["triage_metadata<br/>Paper / Author identity<br/>+ Semantic Scholar · stash refs"]
+    chunks["chunks<br/>equation-aware split + embed<br/>(artifact only)"]
+    extract["extracted_graph<br/>typed concepts · definitions · results"]
+    resolve["resolved_entities<br/>pgvector NN · decide-only<br/>decision trail → Postgres"]
+    analysis["paper_analysis<br/>Claude → Summary node + canonical JSON"]:::sink
+    write["graph_write — SOLE writer<br/>Chunk · Concept (+pgvector)<br/>Definition · Result · CITES"]:::writer
+
+    sched --> raw --> parse
+    parse --> triage
+    parse --> chunks
+    parse --> analysis
+    triage --> extract
+    chunks --> extract
+    extract --> resolve
+    extract --> analysis
+    triage --> analysis
+    resolve --> write
+    chunks --> write
+    triage --> write
+
+    classDef sched fill:#6e40c9,stroke:#3d2470,color:#fff;
+    classDef writer fill:#1f6feb,stroke:#0b3d91,color:#fff;
+    classDef sink fill:#238636,stroke:#10401f,color:#fff;
 ```
 
-A daily schedule (`daily_ingest_schedule`, 06:00 Europe/London) scans `SOURCE_DIR`, registers a dynamic partition per new PDF, and requests the `ingest_document` job. Manual materialization works too.
+`graph_write` is the sole writer of the derived graph; `paper_analysis` runs in parallel (it only needs the parse/extract/triage outputs, not the graph write). The daily schedule (`daily_ingest_schedule`, 06:00 Europe/London) scans `SOURCE_DIR`, registers a dynamic partition per new PDF, and requests the `ingest_document` job — manual materialization works too.
 
 ## Schema
 
