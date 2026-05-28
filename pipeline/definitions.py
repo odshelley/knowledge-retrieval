@@ -1,12 +1,12 @@
 from dagster import Definitions
 
-from pipeline.assets import chunks, parsed_document, raw_blob, triage_metadata
+from pipeline.assets import chunks, extracted_graph, parsed_document, raw_blob, triage_metadata
 from pipeline.resources import (
     AnthropicResource, OpenAILLMResource, minio_from_env, new_neo4j_from_env,
 )
 
 defs = Definitions(
-    assets=[raw_blob.raw_blob, parsed_document.parsed_document, chunks.chunks, triage_metadata.triage_metadata],
+    assets=[raw_blob.raw_blob, parsed_document.parsed_document, chunks.chunks, triage_metadata.triage_metadata, extracted_graph.extracted_graph],
     resources={
         "neo4j_new": new_neo4j_from_env(),
         "minio": minio_from_env(),
