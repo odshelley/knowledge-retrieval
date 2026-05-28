@@ -73,6 +73,12 @@ All services read configuration exclusively from environment variables (set in `
 | `OPENAI_API_KEY` | OpenAI API key (used for embeddings and extraction) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (used for `paper_analysis` asset) |
 
+## Security note — default credentials and network binding
+
+The default MinIO credentials (`minioadmin`/`minioadmin`) and Postgres credentials (`dagster`/`dagster`) are for local development only. **Change them before any network-accessible deployment** by setting `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in your `.env` file.
+
+By default the `docker-compose.yml` binds the MinIO (ports 9000, 9001) and Postgres (port 5432) services to `127.0.0.1` only, so they are not reachable from outside the host. Do not change this to `0.0.0.0` without first rotating the credentials and applying appropriate firewall rules.
+
 ## One-time bootstrap
 
 Run these steps once before the first production build (or after a full graph wipe):

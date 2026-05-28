@@ -121,7 +121,9 @@ def graph_write(context) -> MaterializeResult:
             with conn.cursor() as cur:
                 # pgvector embedding upsert for newly-created Concepts (one unit with the node)
                 for c in concepts:
-                    if c.get("action") != "merge" and c.get("embedding") is not None:
+                    # Upsert for every concept (created OR merged), keyed by canonical name, so the
+                    # Neo4j Concept node and its pgvector embedding can never drift out of sync.
+                    if c.get("embedding") is not None:
                         upsert_embedding(cur, c["name"], "Concept", c["embedding"])
                 # forward: this paper → its references
                 for ref in triage.get("references", []):
@@ -133,7 +135,7 @@ def graph_write(context) -> MaterializeResult:
                         cur.execute(
                             "INSERT INTO pending_citations (citing_paper_id, ref_doi, "
                             "ref_arxiv_id, ref_title_norm, ref_s2_id, influential_count) "
-                            "VALUES (%s,%s,%s,%s,%s,%s)",
+                            "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                             (paper_id, ref.get("doi"), ref.get("arxiv_id"),
                              ref.get("title_norm"), ref.get("s2_id"),
                              ref.get("influential_count", 0)))

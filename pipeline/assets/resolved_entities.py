@@ -44,8 +44,9 @@ def resolved_entities(context) -> MaterializeResult:
                                 "Concept", score, action.value, context.run_id)
                 resolved.append({
                     "name": canonical, "kind": c["kind"], "action": action.value,
-                    # graph_write upserts this embedding for newly-created canonicals.
-                    "embedding": v if action != Decision.MERGE else None,
+                    # graph_write upserts this embedding keyed by canonical name on every run
+                    # (idempotent overwrite) so a Concept node can never lack a pgvector row.
+                    "embedding": v,
                 })
         conn.commit()  # ONLY decision rows are written here — no Neo4j, no embedding upsert.
 

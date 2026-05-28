@@ -7,7 +7,13 @@ from pathlib import Path
 
 
 def source_dir() -> Path:
-    return Path(os.environ["SOURCE_DIR"]).expanduser()
+    value = os.environ.get("SOURCE_DIR")
+    if not value:
+        raise RuntimeError(
+            "SOURCE_DIR is not set — point it at the folder of paper PDFs to ingest "
+            "(see .env.example and docs/operations.md)."
+        )
+    return Path(value).expanduser()
 
 
 def list_pdf_files(root: Path) -> list[Path]:

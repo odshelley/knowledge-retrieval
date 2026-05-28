@@ -19,6 +19,9 @@ DDL = [
     " ref_doi text, ref_arxiv_id text, ref_title_norm text, ref_s2_id text,"
     " influential_count int DEFAULT 0, created_ts timestamptz DEFAULT now(),"
     " resolved bool DEFAULT false)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS pending_citations_uniq ON pending_citations ("
+    " citing_paper_id, coalesce(ref_doi,''), coalesce(ref_arxiv_id,''),"
+    " coalesce(ref_s2_id,''), coalesce(ref_title_norm,''))",
 ]
 
 
