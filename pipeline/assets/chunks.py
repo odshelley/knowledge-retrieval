@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 from dagster import MaterializeResult, MetadataValue, asset
-from openai import OpenAI
 
 from pipeline.chunking import split_markdown
 from pipeline.embedding import embed_texts
@@ -22,8 +21,8 @@ def chunks(context) -> MaterializeResult:
     parts = split_markdown(md)
 
     cfg = context.resources.openai
-    client = OpenAI(api_key=cfg.api_key)
-    vectors = embed_texts(client, parts, model=cfg.embedding_model)
+    client = cfg.get_client()
+    vectors = embed_texts(client, parts, model=cfg.embedding_model, timeout=cfg.request_timeout)
 
     artifact = [
         {"id": f"{key}:{i}", "position": i, "text": t, "embedding": v}

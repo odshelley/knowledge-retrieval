@@ -43,12 +43,18 @@ class OpenAILLMResource(ConfigurableResource):
     api_key: str = Field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
     extraction_model: str = "gpt-5-nano"
     embedding_model: str = "text-embedding-3-small"
+    request_timeout: float = 60.0
+
+    def get_client(self):
+        from openai import OpenAI
+        return OpenAI(api_key=self.api_key)
 
 
 class AnthropicResource(ConfigurableResource):
     """Claude used for paper summary generation."""
     api_key: str = Field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     summary_model: str = "claude-sonnet-4-6"
+    request_timeout: float = 60.0
 
     def get_client(self) -> anthropic.Anthropic:
         return anthropic.Anthropic(api_key=self.api_key)

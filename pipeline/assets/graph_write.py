@@ -6,18 +6,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.partitions import documents_partitions_def
 from pipeline.resolver import upsert_embedding
 from pipeline.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET, TRIAGE_BUCKET
-
-
-# --- pure builders ------------------------------------------------------------
-def normalize_statement(s: str) -> str:
-    return re.sub(r"\s+", " ", s.strip().lower())
+from pipeline.text_norm import normalize_statement
 
 
 def _hash12(s: str) -> str:
@@ -111,7 +106,7 @@ def graph_write(context) -> MaterializeResult:
     rrows = result_rows(paper_id, resolved.get("results", []))
 
     new = context.resources.neo4j_new
-    with new.get_driver().session(database=new.database) as s:
+    with new.get_driver() as driver, driver.session(database=new.database) as s:
         s.run(WRITE_CHUNKS, doc_id=key, paper_id=paper_id, rows=chunks)
         s.run(WRITE_CONCEPTS, paper_id=paper_id, rows=crows)
         s.run(WRITE_DEFINITIONS, paper_id=paper_id, rows=drows)

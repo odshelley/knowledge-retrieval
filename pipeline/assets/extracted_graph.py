@@ -7,8 +7,8 @@ import json
 from dataclasses import asdict
 
 from dagster import MaterializeResult, MetadataValue, asset
-from openai import OpenAI
 
+from pipeline.assets.parsed_document import QuarantineError
 from pipeline.extraction import extract_from_chunk, merge_results
 from pipeline.partitions import documents_partitions_def
 from pipeline.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET
@@ -23,8 +23,14 @@ def extracted_graph(context) -> MaterializeResult:
     texts = [c["text"] for c in sorted(chunk_rows, key=lambda c: c["position"]) if c["text"]]
 
     cfg = context.resources.openai
-    client = OpenAI(api_key=cfg.api_key)
-    merged = merge_results([extract_from_chunk(client, cfg.extraction_model, t) for t in texts])
+    client = cfg.get_client()
+    try:
+        merged = merge_results([
+            extract_from_chunk(client, cfg.extraction_model, t, timeout=cfg.request_timeout)
+            for t in texts
+        ])
+    except (json.JSONDecodeError, ValueError, KeyError, IndexError, AttributeError) as exc:
+        raise QuarantineError(f"{key}: extraction returned unparseable/invalid JSON") from exc
 
     payload = {
         "concepts": [asdict(c) for c in merged.concepts],

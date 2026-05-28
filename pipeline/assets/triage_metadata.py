@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 from dagster import MaterializeResult, asset
-from openai import OpenAI
 
 from pipeline import research_port as rp
 from pipeline.assets.parsed_document import QuarantineError
@@ -21,12 +20,13 @@ FRONTMATTER_PROMPT = (
 DUP_CHECK = "MATCH (p:Paper {id:$pid}) RETURN p.document_id AS doc"
 
 
-def _extract_frontmatter(client, model: str, head: str) -> dict:
+def _extract_frontmatter(client, model: str, head: str, timeout: float = 60.0) -> dict:
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": FRONTMATTER_PROMPT},
                   {"role": "user", "content": head[:6000]}],
         response_format={"type": "json_object"},
+        timeout=timeout,
     )
     return json.loads(resp.choices[0].message.content)
 
@@ -39,8 +39,11 @@ def triage_metadata(context) -> MaterializeResult:
     md = s3.get_object(Bucket=PARSED_BUCKET, Key=f"{key}.md")["Body"].read().decode("utf-8")
 
     cfg = context.resources.openai
-    client = OpenAI(api_key=cfg.api_key)
-    fm = _extract_frontmatter(client, cfg.extraction_model, md)
+    client = cfg.get_client()
+    try:
+        fm = _extract_frontmatter(client, cfg.extraction_model, md, timeout=cfg.request_timeout)
+    except (json.JSONDecodeError, KeyError, IndexError, AttributeError) as exc:
+        raise QuarantineError(f"{key}: triage frontmatter was not valid JSON") from exc
     if not fm.get("is_paper"):
         raise QuarantineError(f"{key}: triage classified this document as not-a-paper — quarantined.")
 
@@ -69,7 +72,7 @@ def triage_metadata(context) -> MaterializeResult:
     new = context.resources.neo4j_new
     # Safe under the documented single-writer invariant (max_concurrent_runs=1, docker/dagster.yaml);
     # spec §7 defers a Postgres advisory lock to a future step if concurrency is ever restored.
-    with new.get_driver().session(database=new.database) as s:
+    with new.get_driver() as driver, driver.session(database=new.database) as s:
         row = s.run(DUP_CHECK, pid=paper_id).single()
         if row and row["doc"] and row["doc"] != key:
             raise QuarantineError(

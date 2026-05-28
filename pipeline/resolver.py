@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import enum
 
+EMBEDDING_DIM = 1536
+
 
 class Decision(enum.Enum):
     MERGE = "merge"
@@ -18,8 +20,23 @@ def decide(score: float, high: float = 0.90, low: float = 0.60) -> Decision:
     return Decision.CREATE_FLAGGED
 
 
+def lookup_alias(cur, label: str, name: str) -> str | None:
+    """Return the canonical name an alias maps to, or None. Consulted before NN search (spec §7)."""
+    cur.execute(
+        "SELECT canonical FROM alias_map WHERE label = %s AND alias = %s",
+        (label, name),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 def nearest(cur, label: str, embedding: list[float]) -> tuple[str, float] | None:
     """Return (canonical_name, cosine_similarity) of the closest same-label entity, or None."""
+    if len(embedding) != EMBEDDING_DIM:
+        raise ValueError(
+            f"embedding has {len(embedding)} dims, expected {EMBEDDING_DIM} "
+            f"(does the embedding_model match the pgvector column?)"
+        )
     cur.execute(
         "SELECT canonical, 1 - (embedding <=> %s::vector) AS sim "
         "FROM entity_embeddings WHERE label = %s ORDER BY embedding <=> %s::vector LIMIT 1",
@@ -40,6 +57,11 @@ def record_decision(cur, candidate: str, matched_to: str | None, label: str,
 
 
 def upsert_embedding(cur, canonical: str, label: str, embedding: list[float]) -> None:
+    if len(embedding) != EMBEDDING_DIM:
+        raise ValueError(
+            f"embedding has {len(embedding)} dims, expected {EMBEDDING_DIM} "
+            f"(does the embedding_model match the pgvector column?)"
+        )
     cur.execute(
         "INSERT INTO entity_embeddings (canonical, label, embedding) VALUES (%s,%s,%s::vector) "
         "ON CONFLICT (canonical, label) DO UPDATE SET embedding = EXCLUDED.embedding",

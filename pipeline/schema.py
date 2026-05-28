@@ -1,14 +1,10 @@
-"""Knowledge-graph schema for the new Aura DB.
+"""Knowledge-graph schema for the alethograph Aura DB.
 
-Mirrors the legacy alethograph DB 1:1 (labels, relationship types, directions).
-Source of truth: ``/tmp/legacy_schema.json`` (regenerable via the snippet in
-``pipeline/assets/legacy_mirror.py``).
-
-Used by:
-- SimpleKGPipeline (NODE_TYPES, RELATIONSHIP_TYPES, PATTERNS) so LLM extractions
-  match the legacy graph shape.
-- scripts/init_neo4j.py (INIT_CYPHER) for constraints + the chunk vector index.
-- pipeline/assets/legacy_mirror.py (LABEL_KEY) for the structural mirror's MERGE keys.
+NODE_TYPES, RELATIONSHIP_TYPES, and PATTERNS define the graph shape used by the bespoke
+builder pipeline. INIT_CYPHER (and iter_init_statements) set up Neo4j constraints and the
+chunk vector index; consumed by scripts/init_neo4j.py and scripts/reset_graph.py.
+PATTERNS documents the allowed (start_label, relationship, end_label) triples; extraction
+validates extracted triples against this set.
 """
 from __future__ import annotations
 

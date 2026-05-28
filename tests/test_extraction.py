@@ -1,11 +1,7 @@
 from pipeline.extraction import (
-    validate_triples, ExtractionResult, parse_extraction, merge_results,
+    ExtractionResult, parse_extraction, merge_results,
     Concept, Definition, Result,
 )
-
-def test_validate_triples_drops_illegal_patterns():
-    triples = [("Paper", "DISCUSSES", "Concept"), ("Paper", "AUTHORED", "Concept")]
-    assert validate_triples(triples) == [("Paper", "DISCUSSES", "Concept")]
 
 def test_parse_extraction_reads_concepts_with_kind():
     payload = {

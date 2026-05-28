@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 
-from pipeline.schema import PATTERNS
+from pipeline.text_norm import normalize_statement
 
 VALID_RESULT_KINDS = {"theorem", "lemma", "proposition", "corollary"}
 VALID_CONCEPT_KINDS = {"concept", "method"}
@@ -48,11 +47,6 @@ class ExtractionResult:
     results: list[Result] = field(default_factory=list)
 
 
-def validate_triples(triples: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
-    allowed = set(PATTERNS)
-    return [t for t in triples if t in allowed]
-
-
 def parse_extraction(payload: dict) -> ExtractionResult:
     concepts = []
     for c in payload.get("concepts", []):
@@ -70,19 +64,15 @@ def parse_extraction(payload: dict) -> ExtractionResult:
     return ExtractionResult(concepts=concepts, definitions=definitions, results=results)
 
 
-def extract_from_chunk(client, model: str, chunk: str) -> ExtractionResult:
+def extract_from_chunk(client, model: str, chunk: str, timeout: float = 60.0) -> ExtractionResult:
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": SYSTEM_PROMPT},
                   {"role": "user", "content": chunk[:12000]}],
         response_format={"type": "json_object"},
+        timeout=timeout,
     )
     return parse_extraction(json.loads(resp.choices[0].message.content))
-
-
-def _norm(s: str) -> str:
-    """Match graph_write.normalize_statement so dedup keys here line up with node ids there."""
-    return re.sub(r"\s+", " ", s.strip().lower())
 
 
 def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
@@ -99,13 +89,13 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     seen_d, definitions = set(), []
     for p in parts:
         for d in p.definitions:
-            if _norm(d.statement) not in seen_d:
-                seen_d.add(_norm(d.statement))
+            if normalize_statement(d.statement) not in seen_d:
+                seen_d.add(normalize_statement(d.statement))
                 definitions.append(d)
     seen_r, results = set(), []
     for p in parts:
         for r in p.results:
-            key = (r.kind, _norm(r.statement))
+            key = (r.kind, normalize_statement(r.statement))
             if key not in seen_r:
                 seen_r.add(key)
                 results.append(r)

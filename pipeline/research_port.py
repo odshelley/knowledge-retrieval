@@ -99,13 +99,3 @@ UNWIND $authors AS author
   SET a.s2_author_id = coalesce(author.s2_author_id, a.s2_author_id)
   MERGE (a)-[:AUTHORED]->(p)
 """
-
-# Used by graph_write (forward pass). The cited match is by any present identifier.
-CITE_FORWARD = """
-MATCH (citing:Paper {id: $citing_id})
-MATCH (cited:Paper)
-  WHERE ($s2_id  IS NOT NULL AND cited.s2_id  = $s2_id)
-     OR ($doi    IS NOT NULL AND cited.doi    = $doi)
-     OR ($arxiv  IS NOT NULL AND cited.arxiv_id = $arxiv)
-MERGE (citing)-[:CITES]->(cited)
-"""

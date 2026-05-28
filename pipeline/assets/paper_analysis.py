@@ -33,6 +33,7 @@ def paper_analysis(context) -> MaterializeResult:
         max_tokens=4000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": md[:120000]}],
+        timeout=context.resources.anthropic.request_timeout,
     )
     text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
     if not text_blocks:
@@ -43,7 +44,7 @@ def paper_analysis(context) -> MaterializeResult:
     s3.put_object(Bucket=ANALYSIS_BUCKET, Key=f"{key}.json",
                   Body=json.dumps(analysis).encode("utf-8"))
     new = context.resources.neo4j_new
-    with new.get_driver().session(database=new.database) as s:
+    with new.get_driver() as driver, driver.session(database=new.database) as s:
         s.run(WRITE_SUMMARY, paper_id=paper_id, json=json.dumps(analysis))
     return MaterializeResult(metadata={"analysis_key": f"{ANALYSIS_BUCKET}/{key}.json",
                                        "paper_id": paper_id})

@@ -27,11 +27,12 @@ def main() -> None:
         auth=(os.environ["NEO4J_NEW_USERNAME"], os.environ["NEO4J_NEW_PASSWORD"]),
     )
     db = os.environ.get("NEO4J_NEW_DATABASE", "neo4j")
+    statements = list(iter_init_statements())
     with driver.session(database=db) as s:
-        for stmt in iter_init_statements():
+        for stmt in statements:
             print(f"executing: {stmt[:60]}...")
             s.run(stmt)
-    print(f"applied {len(iter_init_statements())} schema statements to {db}")
+    print(f"applied {len(statements)} schema statements to {db}")
 
 
 if __name__ == "__main__":
