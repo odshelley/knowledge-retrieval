@@ -50,6 +50,7 @@ services:
       mc mb -p local/raw &&
       mc mb -p local/parsed &&
       mc mb -p local/chunks &&
+      mc mb -p local/triage &&
       echo 'buckets ready'
       "
 
