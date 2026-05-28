@@ -1,29 +1,16 @@
+"""Dynamic, content-hash-keyed partitions — one per ingested document."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import hashlib
 
-from dagster import StaticPartitionsDefinition
+from dagster import DynamicPartitionsDefinition
 
-PARTITIONS_FILE = Path(__file__).resolve().parent.parent / "data" / "partitions.json"
-
-
-def load_partitions() -> list[dict]:
-    if not PARTITIONS_FILE.exists():
-        return []
-    return json.loads(PARTITIONS_FILE.read_text())
+DOCUMENTS_PARTITION = "documents"
 
 
-def paper_ids() -> list[str]:
-    return [p["paper_id"] for p in load_partitions()]
+def hash_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
-def partitions_def() -> StaticPartitionsDefinition:
-    return StaticPartitionsDefinition(paper_ids())
-
-
-def get_partition(paper_id: str) -> dict | None:
-    for p in load_partitions():
-        if p["paper_id"] == paper_id:
-            return p
-    return None
+def documents_partitions_def() -> DynamicPartitionsDefinition:
+    return DynamicPartitionsDefinition(name=DOCUMENTS_PARTITION)
