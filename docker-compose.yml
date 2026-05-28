@@ -52,6 +52,7 @@ services:
       mc mb -p local/chunks &&
       mc mb -p local/triage &&
       mc mb -p local/extracted &&
+      mc mb -p local/analysis &&
       echo 'buckets ready'
       "
 

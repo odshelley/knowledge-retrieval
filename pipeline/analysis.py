@@ -1,0 +1,38 @@
+"""Per-paper analysis matching the research skill's note template. Math kept as LaTeX."""
+from __future__ import annotations
+
+# Fixed standing brief replaces the skill's interactive per-paper learning goal (spec §15).
+STANDING_BRIEF = (
+    "Summarise for a quantitative-finance researcher tracking XVA, stochastic analysis, "
+    "and machine-learning methods. Emphasise mathematical contributions and how results connect."
+)
+
+ANALYSIS_FIELDS = [
+    "summary", "key_contributions", "methodology", "key_findings",
+    "important_references", "atomic_notes", "definitions", "results",
+]
+
+SYSTEM_PROMPT = (
+    "Produce a structured analysis of this paper as STRICT JSON with keys: "
+    + ", ".join(ANALYSIS_FIELDS) + ". "
+    "summary: 2-3 paragraphs. key_contributions/key_findings/important_references/atomic_notes: "
+    "arrays of strings. definitions/results: arrays of objects with statements in LaTeX. "
+    f"Audience brief: {STANDING_BRIEF}"
+)
+
+
+def strip_to_json(text: str) -> str:
+    """Claude may wrap JSON in prose/fences; return the substring from the first '{' to the
+    last '}' (inclusive). If no braces are present, return the input stripped."""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return text.strip()
+    return text[start:end + 1]
+
+
+def validate_analysis(obj: dict) -> dict:
+    missing = [f for f in ANALYSIS_FIELDS if f not in obj]
+    if missing:
+        raise ValueError(f"analysis missing fields: {missing}")
+    return obj
