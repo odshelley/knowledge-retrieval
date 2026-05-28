@@ -55,3 +55,83 @@ These are explicit non-goals (spec §2 / §11):
 - Production Dagster topology (k8s, Helm, separate user-code gRPC) — separate spec.
 - Microsoft GraphRAG / HippoRAG / LightRAG retrieval patterns — separate spec(s).
 - Decommissioning the legacy alethograph DB — only after both skill ports complete.
+
+---
+
+## Environment variables
+
+All services read configuration exclusively from environment variables (set in `.env` or the shell):
+
+| Variable | Purpose |
+|---|---|
+| `SOURCE_DIR` | Absolute path to the directory that the daily schedule scans for new PDFs |
+| `RESOLVER_POSTGRES_DSN` | PostgreSQL DSN for the entity-resolver / pending-citations tables (e.g. `postgresql://user:pass@localhost:5432/knowledge`) |
+| `NEO4J_NEW_URI` | Bolt/Neo4j URI for the active Aura instance (e.g. `neo4j+s://xxxxxxxx.databases.neo4j.io`) |
+| `NEO4J_NEW_USERNAME` | Aura username (typically `neo4j`) |
+| `NEO4J_NEW_PASSWORD` | Aura password |
+| `NEO4J_NEW_DATABASE` | Aura database name (typically `neo4j`) |
+| `MINIO_ENDPOINT` | MinIO S3-compatible endpoint (e.g. `http://localhost:9000`) |
+| `MINIO_ACCESS_KEY` | MinIO access key |
+| `MINIO_SECRET_KEY` | MinIO secret key |
+| `OPENAI_API_KEY` | OpenAI API key (used for embeddings and extraction) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (used for `paper_analysis` asset) |
+
+## One-time bootstrap
+
+Run these steps once before the first production build (or after a full graph wipe):
+
+1. **Aura snapshot** — in the Neo4j Aura console, select the `6b371650` instance → "Backup" → "Create snapshot". Keep this snapshot until the first successful production build is verified.
+
+2. **Wipe and re-initialise the graph**:
+   ```bash
+   uv run python scripts/reset_graph.py --yes   # batched DETACH DELETE + schema constraint re-init
+   ```
+   After the wipe, confirm the DB is empty (zero nodes, zero relationships) before proceeding.
+
+3. **Schema init** (if the script exists):
+   ```bash
+   uv run python scripts/init_neo4j.py          # idempotent — safe to run even if schema already exists
+   ```
+
+4. **Postgres init** (pgvector extension + resolver / pending-citations tables):
+   ```bash
+   uv run python scripts/init_postgres.py
+   ```
+
+5. **Start the local stack** (MinIO + Postgres):
+   ```bash
+   docker compose up -d
+   ```
+   The `minio-init` service runs once and creates all required buckets: `raw`, `parsed`, `chunks`, `triage`, `extracted`, `analysis`, `pdfs`, `legacy-summaries`, `vault-snapshots`.
+
+## Daily schedule — `daily_ingest_schedule`
+
+- **Cron**: `0 6 * * *` (06:00 Europe/London)
+- **Job**: `ingest_document` — the full 8-asset pipeline (raw → parse → triage → chunk → extract → resolve → write → analyse)
+- **Behaviour**: on each tick the schedule scans `SOURCE_DIR` for PDF files, computes the SHA-256 of each file, and registers a new Dagster dynamic partition (keyed by the SHA-256 hash) for any PDF not previously seen. A `RunRequest` is emitted per new partition so Dagster materialises the full pipeline for that document.
+
+The schedule is registered in `pipeline/definitions.py` and is enabled by default when the Dagster daemon is running.
+
+## Tests
+
+**Unit suite** (no live services required):
+```bash
+uv run --extra dev pytest -q
+```
+
+**Integration suite** (requires live Aura, MinIO, OpenAI, Anthropic, and Postgres; fixture PDFs must be available under `SOURCE_DIR`):
+
+1. Replace the `FIXTURE_HASH`, `FIXTURE_A_HASH`, and `FIXTURE_B_HASH` placeholder values in `tests/integration/test_end_to_end.py` with the real SHA-256 hashes of your fixture PDFs.
+2. Ensure all environment variables above are set and all services are reachable.
+3. Run:
+   ```bash
+   uv run --extra dev pytest --run-integration
+   ```
+
+## Phase-0 pre-build gates (human-run)
+
+These checks must be completed manually before the first production build is triggered:
+
+- **Docling LaTeX-fidelity spot test**: run Docling on a representative scanned PDF (exercising the VLM/OCR path) and a LaTeX-heavy PDF; verify the output preserves equations and delimiters correctly.
+- **Extraction-model evaluation**: sample 5–10 representative abstracts and confirm the extraction prompt produces well-formed `ExtractedGraph` JSON with no hallucinated node types.
+- **Post-wipe confirmation**: after running `reset_graph.py --yes`, query Aura directly (`MATCH (n) RETURN count(n)`) and confirm zero nodes before starting any pipeline runs.
