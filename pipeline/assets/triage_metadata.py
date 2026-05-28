@@ -42,8 +42,7 @@ def triage_metadata(context) -> MaterializeResult:
     client = OpenAI(api_key=cfg.api_key)
     fm = _extract_frontmatter(client, cfg.extraction_model, md)
     if not fm.get("is_paper"):
-        context.log.warning(f"{key}: triage says not a paper; stopping branch")
-        return MaterializeResult(metadata={"is_paper": False})
+        raise QuarantineError(f"{key}: triage classified this document as not-a-paper — quarantined.")
 
     rec = None
     if fm.get("arxiv_id"):

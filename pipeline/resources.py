@@ -86,7 +86,11 @@ class PostgresResource(ConfigurableResource):
 
     def connect(self):
         import psycopg
-        return psycopg.connect(self.dsn)
+        from pgvector.psycopg import register_vector
+
+        conn = psycopg.connect(self.dsn)
+        register_vector(conn)
+        return conn
 
 
 def postgres_from_env() -> "PostgresResource":
