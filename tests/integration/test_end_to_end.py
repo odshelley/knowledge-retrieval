@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from dagster import materialize
 
@@ -6,6 +8,13 @@ from pipeline.assets import (raw_blob, parsed_document, triage_metadata, chunks,
 from pipeline.resources import (new_neo4j_from_env, minio_from_env, OpenAILLMResource,
                                 AnthropicResource, postgres_from_env)
 from pipeline.partitions import DOCUMENTS_PARTITION
+
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        pytest.skip(f"missing required env var: {name}")
+    return value
 
 
 _ASSETS = [raw_blob.raw_blob, parsed_document.parsed_document, triage_metadata.triage_metadata,
@@ -24,7 +33,7 @@ def test_one_paper_end_to_end(tmp_path):
     """Requires SOURCE_DIR with one fixture PDF, services up, and its hash registered."""
     from dagster import DagsterInstance
     instance = DagsterInstance.get()
-    key = "FIXTURE_HASH"  # replace with the fixture PDF's sha256
+    key = _required_env("INTEGRATION_FIXTURE_HASH")
     instance.add_dynamic_partitions(DOCUMENTS_PARTITION, [key])
     result = materialize(
         _ASSETS,
@@ -47,7 +56,8 @@ def test_one_paper_end_to_end(tmp_path):
 def test_rerun_is_idempotent():
     from dagster import DagsterInstance
     instance = DagsterInstance.get()
-    key = "FIXTURE_HASH"
+    key = _required_env("INTEGRATION_FIXTURE_HASH")
+    instance.add_dynamic_partitions(DOCUMENTS_PARTITION, [key])
 
     def counts():
         new = new_neo4j_from_env()
@@ -71,7 +81,8 @@ def test_citation_backfill_b_then_a():
     appear via graph_write's backward pending_citations pass."""
     from dagster import DagsterInstance
     instance = DagsterInstance.get()
-    key_b, key_a = "FIXTURE_B_HASH", "FIXTURE_A_HASH"  # A's references include B
+    key_b = _required_env("INTEGRATION_FIXTURE_B_HASH")
+    key_a = _required_env("INTEGRATION_FIXTURE_A_HASH")
     for k in (key_b, key_a):
         instance.add_dynamic_partitions(DOCUMENTS_PARTITION, [k])
         materialize(_ASSETS, partition_key=k, resources=_res(), instance=instance)

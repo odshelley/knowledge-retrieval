@@ -16,3 +16,7 @@ def test_upload_if_absent_uploads_when_missing():
     uploaded = _upload_if_absent(s3, "raw", "k.pdf", b"data")
     assert uploaded is True
     s3.put_object.assert_called_once()
+    _, kwargs = s3.put_object.call_args
+    assert kwargs["Bucket"] == "raw"
+    assert kwargs["Key"] == "k.pdf"
+    assert kwargs["Body"] == b"data"

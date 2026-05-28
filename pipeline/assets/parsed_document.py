@@ -23,7 +23,13 @@ def parsed_document(context) -> MaterializeResult:
     obj = s3.get_object(Bucket=RAW_BUCKET, Key=f"{key}.pdf")
     with tempfile.TemporaryDirectory() as td:
         pdf_path = Path(td) / f"{key}.pdf"
-        pdf_path.write_bytes(obj["Body"].read())
+        body = obj["Body"]
+        try:
+            with pdf_path.open("wb") as f:
+                while chunk := body.read(1024 * 1024):
+                    f.write(chunk)
+        finally:
+            body.close()
         result = parse_pdf(str(pdf_path))
     if result.is_empty:
         raise QuarantineError(

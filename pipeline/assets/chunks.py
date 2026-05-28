@@ -25,8 +25,10 @@ def chunks(context) -> MaterializeResult:
     client = OpenAI(api_key=cfg.api_key)
     vectors = embed_texts(client, parts, model=cfg.embedding_model)
 
-    artifact = [{"id": f"{key}:{i}", "position": i, "text": t, "embedding": v}
-                for i, (t, v) in enumerate(zip(parts, vectors))]
+    artifact = [
+        {"id": f"{key}:{i}", "position": i, "text": t, "embedding": v}
+        for i, (t, v) in enumerate(zip(parts, vectors, strict=True))
+    ]
     s3.put_object(Bucket=CHUNKS_BUCKET, Key=f"{key}.json",
                   Body=json.dumps(artifact).encode("utf-8"))
     return MaterializeResult(metadata={"chunks": MetadataValue.int(len(artifact))})

@@ -32,7 +32,22 @@ def strip_to_json(text: str) -> str:
 
 
 def validate_analysis(obj: dict) -> dict:
+    if not isinstance(obj, dict):
+        raise ValueError("analysis must be a JSON object")
     missing = [f for f in ANALYSIS_FIELDS if f not in obj]
     if missing:
         raise ValueError(f"analysis missing fields: {missing}")
+    expected = {
+        "summary": str,
+        "key_contributions": list,
+        "methodology": str,
+        "key_findings": list,
+        "important_references": list,
+        "atomic_notes": list,
+        "definitions": list,
+        "results": list,
+    }
+    wrong = [k for k, t in expected.items() if not isinstance(obj.get(k), t)]
+    if wrong:
+        raise ValueError(f"analysis fields with wrong types: {wrong}")
     return obj

@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 
 import requests
+from requests import RequestException
 
 BASE = "https://api.semanticscholar.org/graph/v1"
 FIELDS = "paperId,title,abstract,year,venue,externalIds,citationCount,influentialCitationCount,tldr,authors"
@@ -47,19 +48,28 @@ def _paper_json_to_record(j: dict) -> dict:
 
 
 def lookup_by_arxiv(arxiv_id: str) -> dict | None:
-    r = requests.get(f"{BASE}/paper/arXiv:{arxiv_id}", params={"fields": FIELDS}, timeout=20)
-    return _paper_json_to_record(r.json()) if r.status_code == 200 else None
+    try:
+        r = requests.get(f"{BASE}/paper/arXiv:{arxiv_id}", params={"fields": FIELDS}, timeout=20)
+        return _paper_json_to_record(r.json()) if r.status_code == 200 else None
+    except RequestException:
+        return None
 
 
 def lookup_by_doi(doi: str) -> dict | None:
-    r = requests.get(f"{BASE}/paper/DOI:{doi}", params={"fields": FIELDS}, timeout=20)
-    return _paper_json_to_record(r.json()) if r.status_code == 200 else None
+    try:
+        r = requests.get(f"{BASE}/paper/DOI:{doi}", params={"fields": FIELDS}, timeout=20)
+        return _paper_json_to_record(r.json()) if r.status_code == 200 else None
+    except RequestException:
+        return None
 
 
 def references(s2_id: str) -> list[dict]:
-    r = requests.get(f"{BASE}/paper/{s2_id}/references",
-                     params={"fields": REF_FIELDS, "limit": 100}, timeout=20)
-    return r.json().get("data", []) if r.status_code == 200 else []
+    try:
+        r = requests.get(f"{BASE}/paper/{s2_id}/references",
+                         params={"fields": REF_FIELDS, "limit": 100}, timeout=20)
+        return r.json().get("data", []) if r.status_code == 200 else []
+    except RequestException:
+        return []
 
 
 def top_reference_records(raw_refs: list[dict], limit: int = 3) -> list[dict]:

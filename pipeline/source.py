@@ -1,10 +1,9 @@
 """Discover source documents. v1: a local folder. Future: same contract for cloud."""
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
-
-from pipeline.partitions import hash_bytes
 
 
 def source_dir() -> Path:
@@ -16,4 +15,8 @@ def list_pdf_files(root: Path) -> list[Path]:
 
 
 def file_partition_key(path: Path) -> str:
-    return hash_bytes(path.read_bytes())
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()

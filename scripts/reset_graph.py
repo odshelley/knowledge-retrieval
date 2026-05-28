@@ -26,9 +26,12 @@ def main() -> None:
         s.run(batched_detach_delete())
         after = s.run("MATCH (n) RETURN count(n) AS n").single()["n"]
         print(f"node count now: {after}")
-        for stmt in iter_init_statements():
+        if after != 0:
+            raise RuntimeError(f"wipe incomplete: expected 0 nodes, found {after}")
+        init_statements = list(iter_init_statements())
+        for stmt in init_statements:
             s.run(stmt)
-        print(f"re-applied {len(iter_init_statements())} schema statements to {db}")
+        print(f"re-applied {len(init_statements)} schema statements to {db}")
 
 
 if __name__ == "__main__":

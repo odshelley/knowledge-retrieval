@@ -73,6 +73,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dagster}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
       POSTGRES_DB: ${POSTGRES_DB:-dagster}
+      RESOLVER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-dagster}:${POSTGRES_PASSWORD:-dagster}@postgres:5432/${POSTGRES_DB:-dagster}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
@@ -112,6 +113,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dagster}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
       POSTGRES_DB: ${POSTGRES_DB:-dagster}
+      RESOLVER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-dagster}:${POSTGRES_PASSWORD:-dagster}@postgres:5432/${POSTGRES_DB:-dagster}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}

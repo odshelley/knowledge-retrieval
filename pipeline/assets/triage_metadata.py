@@ -67,6 +67,8 @@ def triage_metadata(context) -> MaterializeResult:
     }
 
     new = context.resources.neo4j_new
+    # Safe under the documented single-writer invariant (max_concurrent_runs=1, docker/dagster.yaml);
+    # spec §7 defers a Postgres advisory lock to a future step if concurrency is ever restored.
     with new.get_driver().session(database=new.database) as s:
         row = s.run(DUP_CHECK, pid=paper_id).single()
         if row and row["doc"] and row["doc"] != key:

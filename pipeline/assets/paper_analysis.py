@@ -34,7 +34,10 @@ def paper_analysis(context) -> MaterializeResult:
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": md[:120000]}],
     )
-    raw = msg.content[0].text
+    text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
+    if not text_blocks:
+        raise ValueError("anthropic response did not include a text content block")
+    raw = "".join(text_blocks)
     analysis = validate_analysis(json.loads(strip_to_json(raw)))
 
     s3.put_object(Bucket=ANALYSIS_BUCKET, Key=f"{key}.json",

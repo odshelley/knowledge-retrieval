@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-_MATH_BLOCK = re.compile(r"\$\$.*?\$\$|\\begin\{(\w+)\}.*?\\end\{\1\}", re.DOTALL)
+_MATH_BLOCK = re.compile(r"\$\$.*?\$\$|\\begin\{([^}]+)\}.*?\\end\{\1\}", re.DOTALL)
 
 
 def _segments(md: str) -> list[str]:

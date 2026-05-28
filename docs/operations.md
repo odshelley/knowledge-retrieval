@@ -15,22 +15,19 @@ This is the day-to-day reference for running the substrate. The architecture is 
 
 ## Adding a new paper
 
-1. Drop the PDF into MinIO `pdfs/` with key `<paper_id>.pdf`. (Optionally drop a hand-written summary into `legacy-summaries/<paper_id>.md`.)
-2. Add an entry to `data/partitions.json` and commit.
-3. Restart `dagster-webserver` to reload the partition list: `docker compose restart dagster-webserver dagster-daemon`.
-4. The `minio_pdf_sensor` (if enabled) picks the new key up within 30s and runs the full pipeline for that partition. Or trigger manually from the UI.
+Drop the PDF into the `SOURCE_DIR` folder. The `daily_ingest_schedule` (06:00 Europe/London) will detect it automatically by SHA-256 hash, register a new dynamic partition, and run the full pipeline. To ingest immediately without waiting for the schedule, trigger a run manually from the Dagster UI (Assets → `raw_blob` → select the partition → "Materialize selected").
 
 ## Re-extracting a paper after a schema change
 
 1. Bump the schema in `pipeline/schema.py`.
 2. Apply: `uv run python scripts/init_neo4j.py`.
-3. In the UI: select `kg_extracted` for the affected partitions → "Materialize selected." Downstream assets (`structural_overlay`, `paper_summary`) will materialize automatically because their inputs changed.
+3. In the UI: select the affected asset (e.g. `extracted_graph`, `paper_analysis`) for the relevant partition(s) → "Materialize selected." Downstream assets will materialize automatically.
 
-## Regenerating summaries with a new prompt
+## Regenerating analysis with a new prompt
 
-1. Edit `PROMPT_TEMPLATE` in `pipeline/assets/paper_summary.py`.
+1. Edit `SYSTEM_PROMPT` in `pipeline/analysis.py`.
 2. Restart Dagster.
-3. UI → `paper_summary` → select all partitions in your topic of interest → "Materialize selected."
+3. UI → `paper_analysis` → select all partitions of interest → "Materialize selected."
 
 ## Backups
 
@@ -45,8 +42,8 @@ This is the day-to-day reference for running the substrate. The architecture is 
 | Dagster UI: "Failed to load workspace" | Import error in `pipeline.definitions` | `docker compose logs dagster-webserver` and fix the traceback |
 | Asset run: `OpenAI rate limit` | Too many concurrent runs | Lower `max_concurrent_runs` in `docker/dagster.yaml` |
 | Asset run: `Neo4j ServiceUnavailable` | Aura paused (free tier) | Resume in Aura console |
-| `kg_extracted`: empty Concept set on every paper | Tutorial-style schema (too generic) — tune `NODE_TYPES` with descriptions | See spec §6 |
-| Sensor fires but no new runs | `minio_pdf_sensor` cursor too far ahead | UI → Sensors → "Reset cursor" |
+| `extracted_graph`: empty Concept set on every paper | Tutorial-style schema (too generic) — tune `NODE_TYPES` with descriptions | See spec §6 |
+| Schedule fires but no new runs | No new PDFs found in `SOURCE_DIR`, or all hashes already registered | Check `SOURCE_DIR`; confirm PDFs are present |
 
 ## Out-of-scope reminders
 
@@ -121,7 +118,7 @@ uv run --extra dev pytest -q
 
 **Integration suite** (requires live Aura, MinIO, OpenAI, Anthropic, and Postgres; fixture PDFs must be available under `SOURCE_DIR`):
 
-1. Replace the `FIXTURE_HASH`, `FIXTURE_A_HASH`, and `FIXTURE_B_HASH` placeholder values in `tests/integration/test_end_to_end.py` with the real SHA-256 hashes of your fixture PDFs.
+1. Set the environment variables `INTEGRATION_FIXTURE_HASH`, `INTEGRATION_FIXTURE_B_HASH`, and `INTEGRATION_FIXTURE_A_HASH` to the SHA-256 hashes of your fixture PDFs.
 2. Ensure all environment variables above are set and all services are reachable.
 3. Run:
    ```bash

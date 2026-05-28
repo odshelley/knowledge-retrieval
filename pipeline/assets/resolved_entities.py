@@ -31,7 +31,7 @@ def resolved_entities(context) -> MaterializeResult:
     counts = {"merge": 0, "create": 0, "create_flagged": 0}
     with context.resources.postgres.connect() as conn:
         with conn.cursor() as cur:
-            for c, v in zip(concepts, vecs):
+            for c, v in zip(concepts, vecs, strict=True):
                 hit = nearest(cur, "Concept", v)
                 if hit is None:
                     action, canonical, score = Decision.CREATE, c["name"], 0.0
