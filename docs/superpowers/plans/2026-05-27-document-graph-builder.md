@@ -879,12 +879,15 @@ git commit -m "feat: equation-aware markdown chunker"
 
 ---
 
-### Task 10: `chunks` + `chunk_embeddings` → Neo4j
+### Task 10: `chunks` + `chunk_embeddings` (artifacts — no Neo4j write)
+
+> **Spec §5.5/§5.6:** these assets produce **artifacts only**; `graph_write` (Task 14) is the sole writer of `Chunk` nodes.
 
 **Files:**
 - Create: `pipeline/embedding.py` (OpenAI embedding helper)
-- Create: `pipeline/assets/chunks.py` (chunk + embed + write Document/Chunk)
-- Test: `tests/test_embedding.py`, `tests/integration/test_chunks.py`
+- Create: `pipeline/assets/chunks.py` (split + embed → MinIO artifact)
+- Modify: `pipeline/storage.py` (add `CHUNKS_BUCKET = "chunks"`)
+- Test: `tests/test_embedding.py`
 
 - [ ] **Step 1: Write failing test for the embedding helper (mocked)**
 
@@ -927,11 +930,14 @@ def embed_texts(client, texts: list[str], model: str) -> list[list[float]]:
 Run: `uv run pytest tests/test_embedding.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Implement `pipeline/assets/chunks.py`**
+- [ ] **Step 5: Implement `pipeline/assets/chunks.py`** (artifact only)
 
 ```python
-"""chunks: split parsed markdown, embed, and write Document + Chunk nodes to Neo4j."""
+"""chunks: split parsed markdown + embed → MinIO artifact. No Neo4j write here;
+graph_write (Task 14) creates the Chunk nodes from this artifact."""
 from __future__ import annotations
+
+import json
 
 from dagster import MaterializeResult, MetadataValue, asset
 from openai import OpenAI
@@ -939,63 +945,40 @@ from openai import OpenAI
 from pipeline.chunking import split_markdown
 from pipeline.embedding import embed_texts
 from pipeline.partitions import documents_partitions_def
-from pipeline.storage import PARSED_BUCKET
-
-WRITE_CHUNK = """
-MERGE (d:Document {id: $doc_id})
-MERGE (c:Chunk {id: $chunk_id})
-SET c.text = $text, c.position = $position, c.embedding = $embedding
-MERGE (c)-[:BELONGS_TO]->(d)
-"""
+from pipeline.storage import CHUNKS_BUCKET, PARSED_BUCKET
 
 
 @asset(partitions_def=documents_partitions_def(), deps=["parsed_document"],
-       required_resource_keys={"minio", "neo4j_new", "openai"})
+       required_resource_keys={"minio", "openai"})
 def chunks(context) -> MaterializeResult:
-    key = context.partition_key
+    key = context.partition_key  # document id = file SHA-256
     s3 = context.resources.minio.get_client()
     md = s3.get_object(Bucket=PARSED_BUCKET, Key=f"{key}.md")["Body"].read().decode("utf-8")
     parts = split_markdown(md)
 
-    openai_cfg = context.resources.openai
-    client = OpenAI(api_key=openai_cfg.api_key)
-    vectors = embed_texts(client, parts, model=openai_cfg.embedding_model)
+    cfg = context.resources.openai
+    client = OpenAI(api_key=cfg.api_key)
+    vectors = embed_texts(client, parts, model=cfg.embedding_model)
 
-    new = context.resources.neo4j_new
-    with new.get_driver().session(database=new.database) as s:
-        for i, (text, vec) in enumerate(zip(parts, vectors)):
-            s.run(WRITE_CHUNK, doc_id=key, chunk_id=f"{key}:{i}",
-                  text=text, position=i, embedding=vec)
-    return MaterializeResult(metadata={"chunks": MetadataValue.int(len(parts))})
+    artifact = [{"id": f"{key}:{i}", "position": i, "text": t, "embedding": v}
+                for i, (t, v) in enumerate(zip(parts, vectors))]
+    s3.put_object(Bucket=CHUNKS_BUCKET, Key=f"{key}.json",
+                  Body=json.dumps(artifact).encode("utf-8"))
+    return MaterializeResult(metadata={"chunks": MetadataValue.int(len(artifact))})
 ```
 
-Note: `Document`/`Chunk`/`BELONGS_TO` constraints already exist in `INIT_CYPHER` (and `BELONGS_TO` is in `RELATIONSHIP_TYPES`).
+Add `CHUNKS_BUCKET = "chunks"` to `pipeline/storage.py` and the `chunks` bucket to `docker-compose.yml`'s `minio-init`.
 
-- [ ] **Step 6: Write integration test**
+- [ ] **Step 6: Register asset, run unit tests**
 
-`tests/integration/test_chunks.py`:
-```python
-import pytest
+Add `chunks.chunks` to `defs.assets` + the `ingest_document` job. Run: `uv run pytest tests/test_embedding.py tests/test_chunking.py -v` → PASS.
 
-@pytest.mark.integration
-def test_chunks_writes_nodes(neo4j_new_session):  # fixture added in conftest if not present
-    # Materialize `chunks` for a known fixture key via dagster materialize, then:
-    n = neo4j_new_session.run(
-        "MATCH (c:Chunk)-[:BELONGS_TO]->(:Document {id:$k}) RETURN count(c) AS n",
-        k="FIXTURE_HASH").single()["n"]
-    assert n > 0
-```
-
-- [ ] **Step 7: Register asset, run unit tests**
-
-Add `chunks.chunks` to `defs.assets` + job. Run: `uv run pytest tests/test_embedding.py tests/test_chunking.py -v` → PASS.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add pipeline/embedding.py pipeline/assets/chunks.py pipeline/definitions.py \
-        pipeline/jobs.py tests/test_embedding.py tests/integration/test_chunks.py
-git commit -m "feat(asset): chunk + embed + write Document/Chunk nodes"
+git add pipeline/embedding.py pipeline/assets/chunks.py pipeline/storage.py \
+        pipeline/definitions.py pipeline/jobs.py docker-compose.yml tests/test_embedding.py
+git commit -m "feat(asset): chunks + embeddings as MinIO artifact (no Neo4j write)"
 ```
 
 ---
@@ -1004,70 +987,106 @@ git commit -m "feat(asset): chunk + embed + write Document/Chunk nodes"
 
 **Phase exit state:** full graph build — papers enriched from Semantic Scholar with citations, typed concepts + definitions + results extracted and resolved against existing nodes, and a research-skill-shaped analysis written. The daily schedule drives it end-to-end.
 
-### Task 11: Semantic Scholar enrichment + `triage_metadata`
+### Task 11: `research_port` (vendored S2 + Cypher) + `triage_metadata`
+
+> **Spec §5.4/§15:** vendor `research_tools.py` logic into `pipeline/research_port.py` (NOT a runtime dependency; source `~/Projects/alethograph/skills/research/scripts/research_tools.py` @ `0f22fa6`). triage computes the **Paper identity** (DOI > arXiv-no-version > title), writes Paper/Author, quarantines duplicate-paper-different-bytes, and **stashes** references for `graph_write`'s CITES backfill — no CITES written here.
 
 **Files:**
-- Create: `pipeline/semantic_scholar.py` (S2 HTTP client — mirrors `research_tools.py` logic)
+- Create: `pipeline/research_port.py` (vendored S2 client + paper-id helpers + Cypher constants)
 - Create: `pipeline/assets/triage_metadata.py`
-- Test: `tests/test_semantic_scholar.py`
+- Modify: `pipeline/storage.py` (add `TRIAGE_BUCKET = "triage"`)
+- Test: `tests/test_research_port.py`
 
-- [ ] **Step 1: Write failing tests (mocked HTTP)**
+- [ ] **Step 1: Write failing tests (pure helpers + mocked HTTP)**
 
-`tests/test_semantic_scholar.py`:
+`tests/test_research_port.py`:
 ```python
 from unittest.mock import MagicMock, patch
-from pipeline.semantic_scholar import lookup_by_arxiv, top_references
+from pipeline.research_port import (
+    compute_paper_id, strip_arxiv_version, lookup_by_arxiv, top_reference_records,
+)
 
-@patch("pipeline.semantic_scholar.requests.get")
+def test_compute_paper_id_prefers_doi():
+    assert compute_paper_id("10.1/AbC", "2401.1v2", "Title") == "doi:10.1/abc"
+
+def test_compute_paper_id_strips_arxiv_version_when_no_doi():
+    assert compute_paper_id(None, "2401.12345v2", "Title") == "arxiv:2401.12345"
+
+def test_compute_paper_id_falls_back_to_normalized_title():
+    assert compute_paper_id(None, None, "  Deep   BSDE ") == "title:deep bsde"
+
+def test_strip_arxiv_version():
+    assert strip_arxiv_version("2401.12345v3") == "2401.12345"
+
+@patch("pipeline.research_port.requests.get")
 def test_lookup_by_arxiv_maps_fields(mock_get):
     mock_get.return_value = MagicMock(status_code=200, json=lambda: {
-        "paperId": "abc", "title": "T", "abstract": "A",
-        "year": 2020, "citationCount": 5, "influentialCitationCount": 2,
+        "paperId": "abc", "title": "T", "abstract": "A", "year": 2020,
+        "citationCount": 5, "influentialCitationCount": 2,
         "tldr": {"text": "tl;dr"}, "authors": [{"name": "X", "authorId": "1"}],
     })
     p = lookup_by_arxiv("2001.00001")
-    assert p["s2_id"] == "abc"
-    assert p["tldr"] == "tl;dr"
-    assert p["authors"][0]["name"] == "X"
+    assert p["s2_id"] == "abc" and p["tldr"] == "tl;dr" and p["authors"][0]["name"] == "X"
 
-def test_top_references_sorts_by_influential_count():
-    refs = [
-        {"citedPaper": {"paperId": "a", "influentialCitationCount": 1}},
-        {"citedPaper": {"paperId": "b", "influentialCitationCount": 9}},
+def test_top_reference_records_sorts_by_influential():
+    raw = [
+        {"citedPaper": {"paperId": "a", "title": "A", "externalIds": {"DOI": "d1"},
+                        "influentialCitationCount": 1}},
+        {"citedPaper": {"paperId": "b", "title": "B", "externalIds": {"ArXiv": "x2"},
+                        "influentialCitationCount": 9}},
     ]
-    top = top_references(refs, limit=1)
-    assert top == ["b"]
+    top = top_reference_records(raw, limit=1)
+    assert top[0]["s2_id"] == "b" and top[0]["arxiv_id"] == "x2"
 ```
 
 - [ ] **Step 2: Run, verify fail**
 
-Run: `uv run pytest tests/test_semantic_scholar.py -v`
+Run: `uv run pytest tests/test_research_port.py -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `pipeline/semantic_scholar.py`**
+- [ ] **Step 3: Implement `pipeline/research_port.py`**
 
 ```python
-"""Minimal Semantic Scholar client — mirrors research_tools.py's S2 calls.
-
-Reused logic, but pointed at our pipeline (no global Neo4j driver, no sys.exit).
-"""
+"""Vendored from research_tools.py (~/Projects/alethograph/skills/research/scripts/
+research_tools.py @ 0f22fa6). CLI/argparse and the ~/.claude/research-neo4j.json default
+connection stripped; callers pass the pipeline's Neo4j driver. NOT a runtime dependency."""
 from __future__ import annotations
+
+import re
 
 import requests
 
 BASE = "https://api.semanticscholar.org/graph/v1"
 FIELDS = "paperId,title,abstract,year,venue,externalIds,citationCount,influentialCitationCount,tldr,authors"
+REF_FIELDS = "title,externalIds,influentialCitationCount"
 
 
+# --- paper identity (spec §5.4) --------------------------------------------------------
+def strip_arxiv_version(arxiv_id: str) -> str:
+    return re.sub(r"v\d+$", "", arxiv_id)
+
+
+def normalize_title(title: str) -> str:
+    return re.sub(r"\s+", " ", title.strip().lower())
+
+
+def compute_paper_id(doi: str | None, arxiv_id: str | None, title: str | None) -> str:
+    if doi:
+        return "doi:" + doi.strip().lower()
+    if arxiv_id:
+        return "arxiv:" + strip_arxiv_version(arxiv_id.strip().lower())
+    if title:
+        return "title:" + normalize_title(title)
+    raise ValueError("cannot form paper id: no doi/arxiv/title")
+
+
+# --- Semantic Scholar (vendored) -------------------------------------------------------
 def _paper_json_to_record(j: dict) -> dict:
+    ext = j.get("externalIds") or {}
     return {
-        "s2_id": j.get("paperId"),
-        "title": j.get("title"),
-        "abstract": j.get("abstract"),
-        "year": j.get("year"),
-        "venue": j.get("venue"),
-        "doi": (j.get("externalIds") or {}).get("DOI"),
-        "arxiv_id": (j.get("externalIds") or {}).get("ArXiv"),
+        "s2_id": j.get("paperId"), "title": j.get("title"), "abstract": j.get("abstract"),
+        "year": j.get("year"), "venue": j.get("venue"),
+        "doi": ext.get("DOI"), "arxiv_id": ext.get("ArXiv"),
         "citation_count": j.get("citationCount"),
         "influential_citation_count": j.get("influentialCitationCount"),
         "tldr": (j.get("tldr") or {}).get("text"),
@@ -1078,68 +1097,41 @@ def _paper_json_to_record(j: dict) -> dict:
 
 def lookup_by_arxiv(arxiv_id: str) -> dict | None:
     r = requests.get(f"{BASE}/paper/arXiv:{arxiv_id}", params={"fields": FIELDS}, timeout=20)
-    if r.status_code != 200:
-        return None
-    return _paper_json_to_record(r.json())
+    return _paper_json_to_record(r.json()) if r.status_code == 200 else None
 
 
 def lookup_by_doi(doi: str) -> dict | None:
     r = requests.get(f"{BASE}/paper/DOI:{doi}", params={"fields": FIELDS}, timeout=20)
-    if r.status_code != 200:
-        return None
-    return _paper_json_to_record(r.json())
+    return _paper_json_to_record(r.json()) if r.status_code == 200 else None
 
 
 def references(s2_id: str) -> list[dict]:
     r = requests.get(f"{BASE}/paper/{s2_id}/references",
-                     params={"fields": "influentialCitationCount,externalIds", "limit": 100},
-                     timeout=20)
-    if r.status_code != 200:
-        return []
-    return r.json().get("data", [])
+                     params={"fields": REF_FIELDS, "limit": 100}, timeout=20)
+    return r.json().get("data", []) if r.status_code == 200 else []
 
 
-def top_references(refs: list[dict], limit: int = 3) -> list[str]:
-    def score(ref: dict) -> int:
-        return (ref.get("citedPaper") or {}).get("influentialCitationCount") or 0
-    ranked = sorted(refs, key=score, reverse=True)
-    return [(r.get("citedPaper") or {}).get("paperId") for r in ranked[:limit]
-            if (r.get("citedPaper") or {}).get("paperId")]
-```
+def top_reference_records(raw_refs: list[dict], limit: int = 3) -> list[dict]:
+    recs = []
+    for ref in raw_refs:
+        cp = ref.get("citedPaper") or {}
+        ext = cp.get("externalIds") or {}
+        recs.append({
+            "s2_id": cp.get("paperId"),
+            "doi": ext.get("DOI"),
+            "arxiv_id": ext.get("ArXiv"),
+            "title_norm": normalize_title(cp["title"]) if cp.get("title") else None,
+            "influential_count": cp.get("influentialCitationCount") or 0,
+        })
+    return sorted(recs, key=lambda r: r["influential_count"], reverse=True)[:limit]
 
-- [ ] **Step 4: Run, verify pass**
 
-Run: `uv run pytest tests/test_semantic_scholar.py -v`
-Expected: PASS
-
-- [ ] **Step 5: Implement `pipeline/assets/triage_metadata.py`**
-
-```python
-"""triage_metadata: extract front-matter, confirm it's a paper, enrich via Semantic Scholar,
-write Paper + Author nodes and CITES edges to already-present papers."""
-from __future__ import annotations
-
-import json
-
-from dagster import MaterializeResult, asset
-from openai import OpenAI
-
-from pipeline import semantic_scholar as s2
-from pipeline.partitions import documents_partitions_def
-from pipeline.storage import PARSED_BUCKET
-
-FRONTMATTER_PROMPT = (
-    "You are extracting bibliographic metadata from the first page of a document. "
-    "Return strict JSON: {\"is_paper\": bool, \"title\": str, \"authors\": [str], "
-    "\"year\": int|null, \"arxiv_id\": str|null, \"doi\": str|null}. "
-    "is_paper is false for non-papers (slides, notes, books)."
-)
-
+# --- vendored Cypher (db-add-paper / db-cite-paper) ------------------------------------
 WRITE_PAPER = """
 MERGE (p:Paper {id: $id})
-SET p.title=$title, p.year=$year, p.arxiv_id=$arxiv_id, p.doi=$doi,
-    p.s2_id=$s2_id, p.abstract=$abstract, p.tldr=$tldr,
-    p.citation_count=$citation_count, p.influential_citation_count=$influential_citation_count
+SET p.title=$title, p.year=$year, p.arxiv_id=$arxiv_id, p.doi=$doi, p.s2_id=$s2_id,
+    p.abstract=$abstract, p.tldr=$tldr, p.citation_count=$citation_count,
+    p.influential_citation_count=$influential_citation_count, p.document_id=$document_id
 WITH p
 UNWIND $authors AS author
   MERGE (a:Author {name: author.name})
@@ -1147,11 +1139,46 @@ UNWIND $authors AS author
   MERGE (a)-[:AUTHORED]->(p)
 """
 
-CITE_IF_PRESENT = """
-MATCH (citing:Paper {id: $citing})
-MATCH (cited:Paper) WHERE cited.s2_id = $cited_s2
+# Used by graph_write (forward pass). The cited match is by any present identifier.
+CITE_FORWARD = """
+MATCH (citing:Paper {id: $citing_id})
+MATCH (cited:Paper)
+  WHERE ($s2_id  IS NOT NULL AND cited.s2_id  = $s2_id)
+     OR ($doi    IS NOT NULL AND cited.doi    = $doi)
+     OR ($arxiv  IS NOT NULL AND cited.arxiv_id = $arxiv)
 MERGE (citing)-[:CITES]->(cited)
 """
+```
+
+- [ ] **Step 4: Run, verify pass**
+
+Run: `uv run pytest tests/test_research_port.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Implement `pipeline/assets/triage_metadata.py`**
+
+```python
+"""triage_metadata: confirm paper, establish Paper identity, S2-enrich, write Paper+Author,
+quarantine duplicate-paper-different-bytes, and stash references for graph_write's backfill."""
+from __future__ import annotations
+
+import json
+
+from dagster import MaterializeResult, asset
+from openai import OpenAI
+
+from pipeline import research_port as rp
+from pipeline.assets.parsed_document import QuarantineError
+from pipeline.partitions import documents_partitions_def
+from pipeline.storage import PARSED_BUCKET, TRIAGE_BUCKET
+
+FRONTMATTER_PROMPT = (
+    "You are extracting bibliographic metadata from the first page of a document. "
+    "Return strict JSON: {\"is_paper\": bool, \"title\": str, \"authors\": [str], "
+    "\"year\": int|null, \"arxiv_id\": str|null, \"doi\": str|null}. "
+    "is_paper is false for non-papers (slides, notes, books)."
+)
+DUP_CHECK = "MATCH (p:Paper {id:$pid}) RETURN p.document_id AS doc"
 
 
 def _extract_frontmatter(client, model: str, head: str) -> dict:
@@ -1167,7 +1194,7 @@ def _extract_frontmatter(client, model: str, head: str) -> dict:
 @asset(partitions_def=documents_partitions_def(), deps=["parsed_document"],
        required_resource_keys={"minio", "neo4j_new", "openai"})
 def triage_metadata(context) -> MaterializeResult:
-    key = context.partition_key
+    key = context.partition_key  # document id
     s3 = context.resources.minio.get_client()
     md = s3.get_object(Bucket=PARSED_BUCKET, Key=f"{key}.md")["Body"].read().decode("utf-8")
 
@@ -1175,51 +1202,62 @@ def triage_metadata(context) -> MaterializeResult:
     client = OpenAI(api_key=cfg.api_key)
     fm = _extract_frontmatter(client, cfg.extraction_model, md)
     if not fm.get("is_paper"):
-        context.log.warning(f"{key}: triage says not a paper; recording and stopping branch")
+        context.log.warning(f"{key}: triage says not a paper; stopping branch")
         return MaterializeResult(metadata={"is_paper": False})
 
     rec = None
     if fm.get("arxiv_id"):
-        rec = s2.lookup_by_arxiv(fm["arxiv_id"])
+        rec = rp.lookup_by_arxiv(fm["arxiv_id"])
     if rec is None and fm.get("doi"):
-        rec = s2.lookup_by_doi(fm["doi"])
+        rec = rp.lookup_by_doi(fm["doi"])
     rec = rec or {}
 
+    doi = rec.get("doi") or fm.get("doi")
+    arxiv = rec.get("arxiv_id") or fm.get("arxiv_id")
+    title = rec.get("title") or fm.get("title")
+    paper_id = rp.compute_paper_id(doi, arxiv, title)
+
     paper = {
-        "id": key,
-        "title": rec.get("title") or fm.get("title"),
-        "year": rec.get("year") or fm.get("year"),
-        "arxiv_id": rec.get("arxiv_id") or fm.get("arxiv_id"),
-        "doi": rec.get("doi") or fm.get("doi"),
-        "s2_id": rec.get("s2_id"),
-        "abstract": rec.get("abstract"),
-        "tldr": rec.get("tldr"),
+        "id": paper_id, "document_id": key, "title": title,
+        "year": rec.get("year") or fm.get("year"), "arxiv_id": arxiv, "doi": doi,
+        "s2_id": rec.get("s2_id"), "abstract": rec.get("abstract"), "tldr": rec.get("tldr"),
         "citation_count": rec.get("citation_count"),
         "influential_citation_count": rec.get("influential_citation_count"),
         "authors": rec.get("authors") or [{"name": n, "s2_author_id": None}
-                                           for n in (fm.get("authors") or [])],
+                                          for n in (fm.get("authors") or [])],
     }
 
     new = context.resources.neo4j_new
     with new.get_driver().session(database=new.database) as s:
-        s.run(WRITE_PAPER, **paper)
-        if rec.get("s2_id"):
-            for cited_s2 in s2.top_references(s2.references(rec["s2_id"]), limit=3):
-                s.run(CITE_IF_PRESENT, citing=key, cited_s2=cited_s2)
-    return MaterializeResult(metadata={"is_paper": True, "title": paper["title"],
-                                       "s2_id": paper["s2_id"]})
+        row = s.run(DUP_CHECK, pid=paper_id).single()
+        if row and row["doc"] and row["doc"] != key:
+            raise QuarantineError(
+                f"{key}: duplicate-paper-different-bytes — paper {paper_id} already "
+                f"ingested from document {row['doc']}")
+        s.run(rp.WRITE_PAPER, **paper)
+
+    refs = rp.top_reference_records(rp.references(rec["s2_id"]), limit=3) if rec.get("s2_id") else []
+    identifiers = {"s2_id": rec.get("s2_id"), "doi": doi, "arxiv_id": arxiv,
+                   "title_norm": rp.normalize_title(title) if title else None}
+    s3.put_object(Bucket=TRIAGE_BUCKET, Key=f"{key}.json",
+                  Body=json.dumps({"paper_id": paper_id, "s2_id": rec.get("s2_id"),
+                                   "identifiers": identifiers, "references": refs}).encode("utf-8"))
+    return MaterializeResult(metadata={"is_paper": True, "paper_id": paper_id,
+                                       "references": len(refs)})
 ```
+
+Add `TRIAGE_BUCKET = "triage"` to `pipeline/storage.py` + the bucket to `docker-compose.yml`. `QuarantineError` comes from Task 8's `parsed_document` (or move it to a shared `pipeline/errors.py` and import from both).
 
 - [ ] **Step 6: Register, run unit tests**
 
-Add to `defs.assets` + job. Run: `uv run pytest tests/test_semantic_scholar.py -v` → PASS.
+Add `triage_metadata` to `defs.assets` + the `ingest_document` job. Run: `uv run pytest tests/test_research_port.py -v` → PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add pipeline/semantic_scholar.py pipeline/assets/triage_metadata.py \
-        pipeline/definitions.py pipeline/jobs.py tests/test_semantic_scholar.py
-git commit -m "feat(asset): triage_metadata + Semantic Scholar enrichment + CITES"
+git add pipeline/research_port.py pipeline/assets/triage_metadata.py pipeline/storage.py \
+        pipeline/definitions.py pipeline/jobs.py docker-compose.yml tests/test_research_port.py
+git commit -m "feat(asset): vendored research_port + triage_metadata (paper identity, dedup, refs stash)"
 ```
 
 ---
@@ -1368,8 +1406,9 @@ Expected: PASS
 - [ ] **Step 5: Implement `pipeline/assets/extracted_graph.py`**
 
 ```python
-"""extracted_graph: run extraction over this paper's chunks; emit candidate entities.
-Output (returned + stashed in MinIO JSON) feeds resolved_entities + graph_write."""
+"""extracted_graph: run extraction over this paper's chunk artifact; emit candidate entities.
+Reads the chunk artifact (not Neo4j — chunks are artifact-only now). Output stashed in MinIO
+JSON feeds resolved_entities + graph_write."""
 from __future__ import annotations
 
 import json
@@ -1380,19 +1419,16 @@ from openai import OpenAI
 
 from pipeline.extraction import extract_from_chunk, merge_results
 from pipeline.partitions import documents_partitions_def
-from pipeline.storage import PARSED_BUCKET
-
-EXTRACTED_BUCKET = "extracted"
-FETCH_CHUNKS = "MATCH (c:Chunk)-[:BELONGS_TO]->(:Document {id:$k}) RETURN c.text AS t ORDER BY c.position"
+from pipeline.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET
 
 
 @asset(partitions_def=documents_partitions_def(), deps=["chunks", "triage_metadata"],
-       required_resource_keys={"minio", "neo4j_new", "openai"})
+       required_resource_keys={"minio", "openai"})
 def extracted_graph(context) -> MaterializeResult:
     key = context.partition_key
-    new = context.resources.neo4j_new
-    with new.get_driver().session(database=new.database) as s:
-        texts = [r["t"] for r in s.run(FETCH_CHUNKS, k=key) if r["t"]]
+    s3 = context.resources.minio.get_client()
+    chunk_rows = json.loads(s3.get_object(Bucket=CHUNKS_BUCKET, Key=f"{key}.json")["Body"].read())
+    texts = [c["text"] for c in sorted(chunk_rows, key=lambda c: c["position"]) if c["text"]]
 
     cfg = context.resources.openai
     client = OpenAI(api_key=cfg.api_key)
@@ -1403,19 +1439,16 @@ def extracted_graph(context) -> MaterializeResult:
         "definitions": [asdict(d) for d in merged.definitions],
         "results": [asdict(r) for r in merged.results],
     }
-    # Persist for resolved_entities (Task 13) + graph_write (Task 14).
-    s3 = context.resources.minio.get_client()
     s3.put_object(Bucket=EXTRACTED_BUCKET, Key=f"{key}.json",
                   Body=json.dumps(payload).encode("utf-8"))
     return MaterializeResult(metadata={
         "concepts": MetadataValue.int(len(merged.concepts)),
         "definitions": MetadataValue.int(len(merged.definitions)),
         "results": MetadataValue.int(len(merged.results)),
-        "payload": MetadataValue.json(payload),
     })
 ```
 
-Note: add `EXTRACTED_BUCKET = "extracted"` to `pipeline/storage.py` (imported above) and add the `extracted` bucket to the `minio-init` service in `docker-compose.yml`.
+Note: add `EXTRACTED_BUCKET = "extracted"` to `pipeline/storage.py` (alongside `CHUNKS_BUCKET`) and add the `extracted` bucket to the `minio-init` service in `docker-compose.yml`.
 
 - [ ] **Step 6: Register, run unit tests**
 
@@ -1431,7 +1464,9 @@ git commit -m "feat(asset): extracted_graph (typed concepts, definitions, result
 
 ---
 
-### Task 13: `resolved_entities` — pgvector resolver + decision trail
+### Task 13: `resolved_entities` (decide-only) + pgvector resolver
+
+> **Spec §5.8/§7:** `resolved_entities` *decides only* — NN-query pgvector + write the decision row. It does **not** write Neo4j or upsert entity embeddings; `graph_write` (Task 14) owns both (single-writer rule). The resolved artifact carries each candidate's embedding so `graph_write` can upsert it for newly-created canonicals.
 
 **Files:**
 - Create: `pipeline/resolver.py` (decision logic + pgvector store)
@@ -1556,6 +1591,11 @@ DDL = [
     " score double precision, action text, run_id text, ts timestamptz DEFAULT now())",
     "CREATE TABLE IF NOT EXISTS alias_map ("
     " alias text, label text, canonical text, PRIMARY KEY (alias, label))",
+    "CREATE TABLE IF NOT EXISTS pending_citations ("
+    " id bigserial PRIMARY KEY, citing_paper_id text NOT NULL,"
+    " ref_doi text, ref_arxiv_id text, ref_title_norm text, ref_s2_id text,"
+    " influential_count int DEFAULT 0, created_ts timestamptz DEFAULT now(),"
+    " resolved bool DEFAULT false)",
 ]
 
 
@@ -1575,8 +1615,9 @@ if __name__ == "__main__":
 - [ ] **Step 7: Implement `pipeline/assets/resolved_entities.py`**
 
 ```python
-"""resolved_entities: map each extracted entity to a canonical node id (or create), logging
-every decision. Consults alias_map first; uses pgvector nearest-neighbour otherwise."""
+"""resolved_entities: DECIDE ONLY. For each candidate Concept, NN-query pgvector and record the
+decision row in Postgres. Writes no Neo4j and upserts no embedding — graph_write owns both
+(single-writer, spec §7). Emits resolved concepts (with embeddings) for graph_write."""
 from __future__ import annotations
 
 import json
@@ -1586,7 +1627,7 @@ from openai import OpenAI
 
 from pipeline.embedding import embed_texts
 from pipeline.partitions import documents_partitions_def
-from pipeline.resolver import Decision, decide, nearest, record_decision, upsert_embedding
+from pipeline.resolver import Decision, decide, nearest, record_decision
 from pipeline.storage import EXTRACTED_BUCKET
 
 
@@ -1618,10 +1659,12 @@ def resolved_entities(context) -> MaterializeResult:
                 counts[action.value] += 1
                 record_decision(cur, c["name"], canonical if action == Decision.MERGE else None,
                                 "Concept", score, action.value, context.run_id)
-                if action != Decision.MERGE:
-                    upsert_embedding(cur, c["name"], "Concept", v)
-                resolved.append({"name": canonical, "kind": c["kind"]})
-        conn.commit()
+                resolved.append({
+                    "name": canonical, "kind": c["kind"], "action": action.value,
+                    # graph_write upserts this embedding for newly-created canonicals.
+                    "embedding": v if action != Decision.MERGE else None,
+                })
+        conn.commit()  # ONLY decision rows are written here — no Neo4j, no embedding upsert.
 
     payload["concepts"] = resolved
     s3.put_object(Bucket=EXTRACTED_BUCKET, Key=f"{key}.resolved.json",
@@ -1643,26 +1686,37 @@ git commit -m "feat(asset): resolved_entities (pgvector resolver + decision trai
 
 ---
 
-### Task 14: `graph_write` — extended-schema MERGE
+### Task 14: `graph_write` — sole writer (Chunks, Concepts+pgvector, Def/Result, CITES)
+
+> **Spec §5.9:** the single writer of the *derived* graph. Reads the chunk / resolved / triage artifacts; writes Chunk nodes, Concept nodes **+ pgvector embedding upsert for new canonicals (one unit)**, Definition/Result nodes (paper-local content-hash ids), and CITES (forward + backward via `pending_citations`). Needs Neo4j **and** Postgres.
 
 **Files:**
 - Create: `pipeline/assets/graph_write.py`
 - Test: `tests/test_graph_write.py`
 
-- [ ] **Step 1: Write failing test for the Cypher builder (pure)**
+- [ ] **Step 1: Write failing tests for the pure builders**
 
 `tests/test_graph_write.py`:
 ```python
-from pipeline.assets.graph_write import concept_rows, definition_rows
+from pipeline.assets.graph_write import (
+    concept_rows, definition_rows, result_rows, normalize_statement, def_id,
+)
 
 def test_concept_rows_carry_kind_tag():
-    rows = concept_rows([{"name": "WWR", "kind": "method"}])
-    assert rows == [{"name": "WWR", "tags": ["method"]}]
+    rows = concept_rows([{"name": "WWR", "kind": "method", "action": "create", "embedding": [0.1]}])
+    assert rows[0]["name"] == "WWR" and rows[0]["tags"] == ["method"]
 
-def test_definition_rows_build_ids():
-    rows = definition_rows("HASH", [{"term": "T", "statement": "$x$"}])
-    assert rows[0]["id"] == "HASH:def:0"
-    assert rows[0]["term"] == "T"
+def test_normalize_statement_collapses_and_lowercases():
+    assert normalize_statement("  Let  $X$\n be ") == "let $x$ be"
+
+def test_def_id_is_deterministic_and_paper_local():
+    a = def_id("paper1", "Let $X$ be a martingale.")
+    b = def_id("paper1", "let   $x$   be a martingale. ")
+    assert a == b and a.startswith("paper1:def:")
+
+def test_result_rows_use_kind_in_id():
+    rows = result_rows("p1", [{"name": "Thm 1", "kind": "theorem", "statement": "$x=y$"}])
+    assert rows[0]["id"].startswith("p1:theorem:")
 ```
 
 - [ ] **Step 2: Run, verify fail**
@@ -1673,33 +1727,66 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `pipeline/assets/graph_write.py`**
 
 ```python
-"""graph_write: MERGE resolved concepts, definitions, results into Neo4j against the schema."""
+"""graph_write: the SOLE writer of the derived graph (spec §5.9). Reads chunk/resolved/triage
+artifacts and writes, all idempotent MERGE: Chunk nodes (+emb), Concept nodes (+ pgvector
+embedding upsert for new canonicals, as one unit), Definition/Result nodes (paper-local
+content-hash ids), and CITES (forward + backward backfill via pending_citations)."""
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.partitions import documents_partitions_def
-from pipeline.storage import EXTRACTED_BUCKET
+from pipeline.resolver import upsert_embedding
+from pipeline.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET, TRIAGE_BUCKET
+
+
+# --- pure builders ------------------------------------------------------------
+def normalize_statement(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+
+def _hash12(s: str) -> str:
+    return hashlib.sha1(normalize_statement(s).encode("utf-8")).hexdigest()[:12]
+
+
+def def_id(paper_id: str, statement: str) -> str:
+    return f"{paper_id}:def:{_hash12(statement)}"
+
+
+def result_id(paper_id: str, kind: str, statement: str) -> str:
+    return f"{paper_id}:{kind}:{_hash12(statement)}"
 
 
 def concept_rows(concepts: list[dict]) -> list[dict]:
     return [{"name": c["name"], "tags": [c["kind"]]} for c in concepts]
 
 
-def definition_rows(key: str, defs: list[dict]) -> list[dict]:
-    return [{"id": f"{key}:def:{i}", "term": d["term"], "statement": d["statement"]}
-            for i, d in enumerate(defs)]
+def definition_rows(paper_id: str, defs: list[dict]) -> list[dict]:
+    return [{"id": def_id(paper_id, d["statement"]), "term": d["term"],
+             "statement": d["statement"]} for d in defs]
 
 
-def result_rows(key: str, results: list[dict]) -> list[dict]:
-    return [{"id": f"{key}:res:{i}", "name": r.get("name", ""), "kind": r["kind"],
-             "statement": r["statement"]} for i, r in enumerate(results)]
+def result_rows(paper_id: str, results: list[dict]) -> list[dict]:
+    return [{"id": result_id(paper_id, r["kind"], r["statement"]), "name": r.get("name", ""),
+             "kind": r["kind"], "statement": r["statement"]} for r in results]
 
+
+# --- Cypher -------------------------------------------------------------------
+WRITE_CHUNKS = """
+MERGE (d:Document {id:$doc_id}) SET d.paper_id = $paper_id
+WITH d
+UNWIND $rows AS row
+  MERGE (c:Chunk {id: row.id})
+  SET c.text = row.text, c.position = row.position, c.embedding = row.embedding
+  MERGE (c)-[:BELONGS_TO]->(d)
+"""
 
 WRITE_CONCEPTS = """
-MATCH (p:Paper {id:$key})
+MATCH (p:Paper {id:$paper_id})
 UNWIND $rows AS row
   MERGE (c:Concept {name: row.name})
   SET c.tags = row.tags
@@ -1708,7 +1795,7 @@ UNWIND $rows AS row
 """
 
 WRITE_DEFINITIONS = """
-MATCH (p:Paper {id:$key})
+MATCH (p:Paper {id:$paper_id})
 UNWIND $rows AS row
   MERGE (d:Definition {id: row.id})
   SET d.term = row.term, d.statement = row.statement
@@ -1716,37 +1803,89 @@ UNWIND $rows AS row
 """
 
 WRITE_RESULTS = """
-MATCH (p:Paper {id:$key})
+MATCH (p:Paper {id:$paper_id})
 UNWIND $rows AS row
   MERGE (r:Result {id: row.id})
   SET r.name = row.name, r.kind = row.kind, r.statement = row.statement
   MERGE (p)-[:STATES]->(r)
 """
 
+FIND_CITED = """
+MATCH (cited:Paper)
+  WHERE ($s2 IS NOT NULL AND cited.s2_id=$s2)
+     OR ($doi IS NOT NULL AND cited.doi=$doi)
+     OR ($arxiv IS NOT NULL AND cited.arxiv_id=$arxiv)
+RETURN cited.id AS id LIMIT 1
+"""
+MERGE_CITES = "MATCH (a:Paper {id:$citing}),(b:Paper {id:$cited}) MERGE (a)-[:CITES]->(b)"
 
-@asset(partitions_def=documents_partitions_def(), deps=["resolved_entities"],
-       required_resource_keys={"minio", "neo4j_new"})
+_MATCH_PENDING = ("ref_s2_id=%s OR ref_doi=%s OR ref_arxiv_id=%s OR ref_title_norm=%s")
+
+
+@asset(partitions_def=documents_partitions_def(),
+       deps=["resolved_entities", "chunks", "triage_metadata"],
+       required_resource_keys={"minio", "neo4j_new", "postgres"})
 def graph_write(context) -> MaterializeResult:
     key = context.partition_key
     s3 = context.resources.minio.get_client()
-    payload = json.loads(
-        s3.get_object(Bucket=EXTRACTED_BUCKET, Key=f"{key}.resolved.json")["Body"].read())
+    resolved = json.loads(s3.get_object(Bucket=EXTRACTED_BUCKET, Key=f"{key}.resolved.json")["Body"].read())
+    chunks = json.loads(s3.get_object(Bucket=CHUNKS_BUCKET, Key=f"{key}.json")["Body"].read())
+    triage = json.loads(s3.get_object(Bucket=TRIAGE_BUCKET, Key=f"{key}.json")["Body"].read())
 
-    crows = concept_rows(payload.get("concepts", []))
-    drows = definition_rows(key, payload.get("definitions", []))
-    rrows = result_rows(key, payload.get("results", []))
+    paper_id = triage["paper_id"]
+    ids = triage.get("identifiers", {})
+    concepts = resolved.get("concepts", [])
+    crows = concept_rows(concepts)
+    drows = definition_rows(paper_id, resolved.get("definitions", []))
+    rrows = result_rows(paper_id, resolved.get("results", []))
 
     new = context.resources.neo4j_new
     with new.get_driver().session(database=new.database) as s:
-        s.run(WRITE_CONCEPTS, key=key, rows=crows)
-        s.run(WRITE_DEFINITIONS, key=key, rows=drows)
-        s.run(WRITE_RESULTS, key=key, rows=rrows)
+        s.run(WRITE_CHUNKS, doc_id=key, paper_id=paper_id, rows=chunks)
+        s.run(WRITE_CONCEPTS, paper_id=paper_id, rows=crows)
+        s.run(WRITE_DEFINITIONS, paper_id=paper_id, rows=drows)
+        s.run(WRITE_RESULTS, paper_id=paper_id, rows=rrows)
+
+        with context.resources.postgres.connect() as conn:
+            with conn.cursor() as cur:
+                # pgvector embedding upsert for newly-created Concepts (one unit with the node)
+                for c in concepts:
+                    if c.get("action") != "merge" and c.get("embedding") is not None:
+                        upsert_embedding(cur, c["name"], "Concept", c["embedding"])
+                # forward: this paper → its references
+                for ref in triage.get("references", []):
+                    found = s.run(FIND_CITED, s2=ref.get("s2_id"), doi=ref.get("doi"),
+                                  arxiv=ref.get("arxiv_id")).single()
+                    if found:
+                        s.run(MERGE_CITES, citing=paper_id, cited=found["id"])
+                    else:
+                        cur.execute(
+                            "INSERT INTO pending_citations (citing_paper_id, ref_doi, "
+                            "ref_arxiv_id, ref_title_norm, ref_s2_id, influential_count) "
+                            "VALUES (%s,%s,%s,%s,%s,%s)",
+                            (paper_id, ref.get("doi"), ref.get("arxiv_id"),
+                             ref.get("title_norm"), ref.get("s2_id"),
+                             ref.get("influential_count", 0)))
+                # backward: prior pending refs that point at THIS paper
+                params = (ids.get("s2_id"), ids.get("doi"), ids.get("arxiv_id"), ids.get("title_norm"))
+                cur.execute(
+                    f"SELECT citing_paper_id FROM pending_citations WHERE NOT resolved AND ({_MATCH_PENDING})",
+                    params)
+                for (citing_id,) in cur.fetchall():
+                    s.run(MERGE_CITES, citing=citing_id, cited=paper_id)
+                cur.execute(
+                    f"UPDATE pending_citations SET resolved=true WHERE NOT resolved AND ({_MATCH_PENDING})",
+                    params)
+            conn.commit()
     return MaterializeResult(metadata={
+        "chunks": MetadataValue.int(len(chunks)),
         "concepts": MetadataValue.int(len(crows)),
         "definitions": MetadataValue.int(len(drows)),
         "results": MetadataValue.int(len(rrows)),
     })
 ```
+
+Note: `Definition DEFINES Concept` / `Result USES Concept` edges (schema §6) are a **deferred best-effort follow-up** (term→concept matching); v1 writes the nodes + `STATES` edges only. The `triage` artifact must include an `identifiers` dict (`s2_id`/`doi`/`arxiv_id`/`title_norm`) — add it to Task 11's stash (the `references` already carry per-ref identifiers).
 
 - [ ] **Step 4: Run, verify pass**
 
@@ -1755,10 +1894,10 @@ Expected: PASS
 
 - [ ] **Step 5: Register + commit**
 
-Add asset to `defs.assets` + job.
+Add asset to `defs.assets` + the `ingest_document` job.
 ```bash
 git add pipeline/assets/graph_write.py pipeline/definitions.py pipeline/jobs.py tests/test_graph_write.py
-git commit -m "feat(asset): graph_write (concepts/definitions/results into Neo4j)"
+git commit -m "feat(asset): graph_write — sole writer (chunks, concepts+pgvector, def/result, CITES backfill)"
 ```
 
 ---
@@ -1844,22 +1983,25 @@ from dagster import MaterializeResult, asset
 
 from pipeline.analysis import SYSTEM_PROMPT, validate_analysis
 from pipeline.partitions import documents_partitions_def
-from pipeline.storage import ANALYSIS_BUCKET, PARSED_BUCKET
+from pipeline.storage import ANALYSIS_BUCKET, PARSED_BUCKET, TRIAGE_BUCKET
 
 WRITE_SUMMARY = """
-MATCH (p:Paper {id:$key})
-MERGE (sm:Summary {id: $key})
+MATCH (p:Paper {id:$paper_id})
+MERGE (sm:Summary {id: $paper_id})
 SET sm.json = $json
 MERGE (p)-[:HAS_SUMMARY]->(sm)
 """
 
 
-@asset(partitions_def=documents_partitions_def(), deps=["parsed_document", "extracted_graph"],
+@asset(partitions_def=documents_partitions_def(),
+       deps=["parsed_document", "extracted_graph", "triage_metadata"],
        required_resource_keys={"minio", "neo4j_new", "anthropic"})
 def paper_analysis(context) -> MaterializeResult:
-    key = context.partition_key
+    key = context.partition_key  # document id
     s3 = context.resources.minio.get_client()
     md = s3.get_object(Bucket=PARSED_BUCKET, Key=f"{key}.md")["Body"].read().decode("utf-8")
+    paper_id = json.loads(
+        s3.get_object(Bucket=TRIAGE_BUCKET, Key=f"{key}.json")["Body"].read())["paper_id"]
 
     client = context.resources.anthropic.get_client()
     msg = client.messages.create(
@@ -1875,8 +2017,9 @@ def paper_analysis(context) -> MaterializeResult:
                   Body=json.dumps(analysis).encode("utf-8"))
     new = context.resources.neo4j_new
     with new.get_driver().session(database=new.database) as s:
-        s.run(WRITE_SUMMARY, key=key, json=json.dumps(analysis))
-    return MaterializeResult(metadata={"analysis_key": f"{ANALYSIS_BUCKET}/{key}.json"})
+        s.run(WRITE_SUMMARY, paper_id=paper_id, json=json.dumps(analysis))
+    return MaterializeResult(metadata={"analysis_key": f"{ANALYSIS_BUCKET}/{key}.json",
+                                       "paper_id": paper_id})
 ```
 
 Add `ANALYSIS_BUCKET = "analysis"` to `pipeline/storage.py` + the bucket in `docker-compose.yml`. (Claude may wrap JSON in prose; if so, strip to the outermost `{...}` before `json.loads` — add that in implementation and a unit test for the stripper.)
@@ -2006,34 +2149,70 @@ def test_one_paper_end_to_end(tmp_path):
     assert result.success
     new = new_neo4j_from_env()
     with new.get_driver().session(database=new.database) as s:
-        assert s.run("MATCH (p:Paper {id:$k}) RETURN count(p) AS n", k=key).single()["n"] == 1
-        assert s.run("MATCH (:Paper {id:$k})-[:HAS_SUMMARY]->(:Summary) RETURN count(*) AS n",
+        # Paper is keyed by paper_id; the Document (this file) carries document_id = key.
+        assert s.run("MATCH (p:Paper {document_id:$k}) RETURN count(p) AS n",
                      k=key).single()["n"] == 1
+        assert s.run("MATCH (:Paper {document_id:$k})-[:HAS_SUMMARY]->(:Summary) "
+                     "RETURN count(*) AS n", k=key).single()["n"] == 1
+        assert s.run("MATCH (c:Chunk)-[:BELONGS_TO]->(:Document {id:$k}) RETURN count(c) AS n",
+                     k=key).single()["n"] > 0
 ```
 
-- [ ] **Step 5: Verify idempotency (re-run yields no duplicates)**
+- [ ] **Step 5: Verify idempotency — including Definition/Result (re-run yields no duplicates)**
 
 Add to the same file:
 ```python
+_ASSETS = [raw_blob.raw_blob, parsed_document.parsed_document, triage_metadata.triage_metadata,
+           chunks.chunks, extracted_graph.extracted_graph, resolved_entities.resolved_entities,
+           graph_write.graph_write, paper_analysis.paper_analysis]
+
+
+def _res():
+    return {"neo4j_new": new_neo4j_from_env(), "minio": minio_from_env(),
+            "openai": OpenAILLMResource(), "anthropic": AnthropicResource(),
+            "postgres": postgres_from_env()}
+
+
 @pytest.mark.integration
 def test_rerun_is_idempotent():
     from dagster import DagsterInstance, materialize
     instance = DagsterInstance.get()
     key = "FIXTURE_HASH"
-    for _ in range(2):
-        materialize(
-            [raw_blob.raw_blob, parsed_document.parsed_document, triage_metadata.triage_metadata,
-             chunks.chunks, extracted_graph.extracted_graph, resolved_entities.resolved_entities,
-             graph_write.graph_write, paper_analysis.paper_analysis],
-            partition_key=key,
-            resources={"neo4j_new": new_neo4j_from_env(), "minio": minio_from_env(),
-                       "openai": OpenAILLMResource(), "anthropic": AnthropicResource(),
-                       "postgres": postgres_from_env()},
-            instance=instance,
-        )
+
+    def counts():
+        new = new_neo4j_from_env()
+        with new.get_driver().session(database=new.database) as s:
+            return {
+                "paper": s.run("MATCH (p:Paper {document_id:$k}) RETURN count(p) AS n", k=key).single()["n"],
+                "def": s.run("MATCH (:Paper {document_id:$k})-[:STATES]->(d:Definition) RETURN count(d) AS n", k=key).single()["n"],
+                "res": s.run("MATCH (:Paper {document_id:$k})-[:STATES]->(r:Result) RETURN count(r) AS n", k=key).single()["n"],
+            }
+
+    materialize(_ASSETS, partition_key=key, resources=_res(), instance=instance)
+    first = counts()
+    materialize(_ASSETS, partition_key=key, resources=_res(), instance=instance)
+    assert counts() == first          # content-hash ids ⇒ no duplicate Definition/Result on re-run
+    assert first["paper"] == 1
+```
+
+- [ ] **Step 5b: Verify CITES backward backfill (ingest B, then A which cites B)**
+
+```python
+@pytest.mark.integration
+def test_citation_backfill_b_then_a():
+    """B is ingested first; A (which references B) is ingested second. The CITES edge must
+    appear via graph_write's backward pending_citations pass."""
+    from dagster import DagsterInstance, materialize
+    instance = DagsterInstance.get()
+    key_b, key_a = "FIXTURE_B_HASH", "FIXTURE_A_HASH"  # A's references include B
+    for k in (key_b, key_a):
+        instance.add_dynamic_partitions(DOCUMENTS_PARTITION, [k])
+        materialize(_ASSETS, partition_key=k, resources=_res(), instance=instance)
     new = new_neo4j_from_env()
     with new.get_driver().session(database=new.database) as s:
-        assert s.run("MATCH (p:Paper {id:$k}) RETURN count(p) AS n", k=key).single()["n"] == 1
+        n = s.run("MATCH (a:Paper {document_id:$a})-[:CITES]->(b:Paper {document_id:$b}) "
+                  "RETURN count(*) AS n", a=key_a, b=key_b).single()["n"]
+        assert n == 1
 ```
 
 - [ ] **Step 6: Run the full unit suite**
@@ -2057,7 +2236,8 @@ git commit -m "feat: wire ingest_document job + daily schedule; end-to-end integ
 
 ## Self-review notes (author)
 
-- **Spec coverage:** §4 DAG → Tasks 6,8,10,11,12,13,14,15; §5 components → one task each; §6 schema → Task 2; §7 resolver → Task 13; §8 models → resources + Tasks 11/12/15; §9 analysis output → Task 15 (canonical JSON; website render remains the agreed downstream task, intentionally out of scope here); §10 idempotency → Tasks 14/16 (MERGE + idempotency test) and quarantine in Task 8; §11 keep/delete/build → Task 7; §12 gates → Phase 0; §13 testing → per-task unit tests + Task 16 integration. §15 parity (template, S2, concept typing, research_tools reuse) → Tasks 11,12,15.
-- **Deferred-by-design (no task, per spec non-goals):** books, topic-DAG inference, researcher auto-linking, idea seeds, human-review UI, website adapter, cloud sources, local LLMs.
-- **Type consistency:** `documents_partitions_def()`/`DOCUMENTS_PARTITION`, `ParseResult`, `ExtractionResult`/`Concept`/`Definition`/`Result`, `Decision`/`decide()`, bucket constants (`RAW_BUCKET`/`PARSED_BUCKET`/`EXTRACTED_BUCKET`/`ANALYSIS_BUCKET`) are defined once and reused consistently across tasks.
-- **Known implementation-time confirmations:** exact Docling OCR option names (Task 8 note); Claude JSON-fencing stripper (Task 15 note); `extracted_graph` MinIO persistence wiring (Task 12 note). Each is called out inline with the contract to preserve.
+- **Aligned with spec revision (2026-05-27):** vendoring into `research_port.py` (Task 11); two-level Document/Paper identity + duplicate-paper quarantine (Tasks 11/16); paper-local content-hash `Definition`/`Result` ids (Task 14) dropped from resolution (Task 13); `chunks`/embeddings artifact-only with `graph_write` as sole Neo4j writer (Tasks 10/14); decide-only `resolved_entities` (Task 13); `pending_citations` forward/backward backfill (Tasks 13/14); `max_concurrent_runs=1` invariant (already in `docker/dagster.yaml`).
+- **Spec coverage:** §4 DAG → Tasks 6,8,10,11,12,13,14,15; §5 components → one task each; §5.4 vendored S2 + paper identity → Task 11; §5.9 single-writer + CITES backfill → Task 14; §6 schema → Task 2; §6 Def/Result ids → Task 14; §7 resolver (Concept-only, decide-only) → Task 13; §8 models → resources + Tasks 11/12/15; §9 analysis output → Task 15 (canonical JSON; website render is the agreed downstream task, out of scope); §10 idempotency/quarantine → Tasks 8/11/14/16; §11 keep/delete/build → Task 7 + `research_port` in Task 11; §12 gates → Phase 0; §13 testing → per-task unit tests + Task 16 integration (incl. Def/Result idempotency + B-then-A citation backfill); §15 parity → Tasks 11,12,15.
+- **Deferred-by-design (no task, per spec non-goals):** books, topic-DAG inference, researcher auto-linking, idea seeds, human-review UI, website adapter, cloud sources, local LLMs. Also deferred within v1: `Definition DEFINES Concept` / `Result USES Concept` edge population (best-effort term→concept matching — Task 14 note).
+- **Type consistency:** `documents_partitions_def()`/`DOCUMENTS_PARTITION`; `ParseResult`; `ExtractionResult`/`Concept`/`Definition`/`Result`; `Decision`/`decide()`; `compute_paper_id`/`normalize_title`/`def_id`/`result_id`; bucket constants (`RAW_BUCKET`/`PARSED_BUCKET`/`CHUNKS_BUCKET`/`TRIAGE_BUCKET`/`EXTRACTED_BUCKET`/`ANALYSIS_BUCKET`); artifact shapes — chunk row `{id,position,text,embedding}`, resolved concept `{name,kind,action,embedding}`, triage `{paper_id,s2_id,identifiers,references}` — are defined once and reused consistently across tasks.
+- **Known implementation-time confirmations:** exact Docling OCR option names (Task 8 note); Claude JSON-fencing stripper (Task 15 note); `QuarantineError` shared between Task 8 and Task 11 (import from `parsed_document` or move to `pipeline/errors.py`).
