@@ -20,6 +20,9 @@ NODE_TYPES = [
     "Topic",
     "Researcher",
     "Idea",
+    "Definition",
+    "Result",
+    "Summary",
 ]
 
 # Verbatim from legacy DB. Verbs are subject-first
@@ -44,6 +47,11 @@ RELATIONSHIP_TYPES = [
     "USES_BOOK",
     "INVOLVES",
     "EVIDENCED_BY",
+    "STATES",
+    "DEFINES",
+    "USES",
+    "DEPENDS_ON",
+    "HAS_SUMMARY",
 ]
 
 # Verbatim patterns from the legacy DB (start, rel, end).
@@ -76,6 +84,12 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Idea",       "EVIDENCED_BY", "Paper"),
     ("Idea",       "STUDIES",      "Topic"),
     ("Idea",       "HAS_TOPIC",    "Topic"),
+    ("Paper",      "STATES",       "Definition"),
+    ("Paper",      "STATES",       "Result"),
+    ("Definition", "DEFINES",      "Concept"),
+    ("Result",     "USES",         "Concept"),
+    ("Result",     "DEPENDS_ON",   "Result"),
+    ("Paper",      "HAS_SUMMARY",  "Summary"),
 ]
 
 INIT_CYPHER = """
@@ -120,6 +134,15 @@ CREATE VECTOR INDEX chunk_embedding IF NOT EXISTS
       `vector.similarity_function`: 'cosine'
     }
   };
+
+CREATE CONSTRAINT definition_id IF NOT EXISTS
+  FOR (d:Definition) REQUIRE d.id IS UNIQUE;
+
+CREATE CONSTRAINT result_id IF NOT EXISTS
+  FOR (r:Result) REQUIRE r.id IS UNIQUE;
+
+CREATE CONSTRAINT summary_id IF NOT EXISTS
+  FOR (s:Summary) REQUIRE s.id IS UNIQUE;
 """
 
 
