@@ -78,3 +78,16 @@ def minio_from_env() -> MinIOResource:
         access_key=os.environ["MINIO_ACCESS_KEY"],
         secret_key=os.environ["MINIO_SECRET_KEY"],
     )
+
+
+class PostgresResource(ConfigurableResource):
+    """Postgres (shares the Dagster metadata instance) for pgvector entity resolution."""
+    dsn: str
+
+    def connect(self):
+        import psycopg
+        return psycopg.connect(self.dsn)
+
+
+def postgres_from_env() -> "PostgresResource":
+    return PostgresResource(dsn=os.environ["RESOLVER_POSTGRES_DSN"])
