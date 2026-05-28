@@ -9,3 +9,4 @@ from __future__ import annotations
 PDFS_BUCKET = "pdfs"
 LEGACY_SUMMARIES_BUCKET = "legacy-summaries"
 VAULT_SNAPSHOTS_BUCKET = "vault-snapshots"
+RAW_BUCKET = "raw"
