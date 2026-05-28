@@ -47,6 +47,8 @@ services:
       mc mb -p local/pdfs &&
       mc mb -p local/legacy-summaries &&
       mc mb -p local/vault-snapshots &&
+      mc mb -p local/raw &&
+      mc mb -p local/parsed &&
       echo 'buckets ready'
       "
 
