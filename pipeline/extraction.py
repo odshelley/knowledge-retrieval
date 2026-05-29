@@ -10,6 +10,53 @@ from pipeline.text_norm import normalize_statement
 VALID_RESULT_KINDS = {"theorem", "lemma", "proposition", "corollary"}
 VALID_CONCEPT_KINDS = {"concept", "method"}
 
+# Provider-neutral JSON schema for structured extraction output. The Anthropic path uses it
+# via output_config.format; the OpenAI path uses response_format=json_object.
+EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "concepts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "kind": {"type": "string", "enum": ["concept", "method"]},
+                },
+                "required": ["name", "kind"],
+                "additionalProperties": False,
+            },
+        },
+        "definitions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "term": {"type": "string"},
+                    "statement": {"type": "string"},
+                },
+                "required": ["term", "statement"],
+                "additionalProperties": False,
+            },
+        },
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "kind": {"type": "string", "enum": ["theorem", "lemma", "proposition", "corollary"]},
+                    "statement": {"type": "string"},
+                },
+                "required": ["name", "kind", "statement"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["concepts", "definitions", "results"],
+    "additionalProperties": False,
+}
+
 SYSTEM_PROMPT = """You are an information-extraction assistant for academic papers in \
 quantitative finance / stochastics. From the chunk, extract:
 - concepts: 3-7 major theoretical ideas/objects/frameworks (kind="concept") or implementable \

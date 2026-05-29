@@ -54,6 +54,7 @@ class AnthropicResource(ConfigurableResource):
     """Claude used for paper summary generation."""
     api_key: str = Field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     summary_model: str = "claude-sonnet-4-6"
+    extraction_model: str = "claude-opus-4-7"
     request_timeout: float = 60.0
 
     def get_client(self) -> anthropic.Anthropic:
