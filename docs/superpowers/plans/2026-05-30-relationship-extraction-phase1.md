@@ -25,7 +25,8 @@
 | `tests/test_extraction.py` | unit | link-field parse + merge-union tests |
 | `tests/test_resolved_entities.py` | unit (new file) | `resolved_concept_row` carries `surface` |
 | `tests/test_graph_write.py` | unit | edge-row builder tests (map, skip-unknown, skip-self) |
-| `tests/integration/test_end_to_end.py` | integration | assert new edges present + idempotent |
+| `tests/integration/test_end_to_end.py` | integration | assert new edges idempotent |
+| `README.md` | docs | note the 3 new edges in the `graph_write` description + asset-DAG |
 
 ---
 
@@ -169,7 +170,8 @@ In `pipeline/extraction.py`, add this helper just above `merge_results`:
 
 ```python
 def _extend_unique(dst: list[str], src: list[str]) -> None:
-    """Append items from src not already in dst, preserving order (in-place)."""
+    """Append items from src not already in dst, preserving order. Mutates dst in place
+    (and thus the kept model it belongs to); inputs are not read again after merge."""
     for item in src:
         if item not in dst:
             dst.append(item)
@@ -306,22 +308,25 @@ Add to `tests/test_graph_write.py` (extend the import on line 1-3 to include the
 
 ```python
 from pipeline.assets.graph_write import (
-    concept_rows, definition_rows, result_rows, normalize_statement, def_id,
-    defines_edge_rows, uses_edge_rows, depends_on_edge_rows, result_id,
+    concept_rows, definition_rows, result_rows, normalize_statement, def_id, result_id,
+    defines_edge_rows, uses_edge_rows, depends_on_edge_rows, result_name_index,
 )
 
 
-_SURFACE_TO_CANON = {"BSDE": "Backward SDE", "Feynman-Kac": "Nonlinear Feynman-Kac"}
+# Keys are LOWERCASED surface names — concepts are deduped case-insensitively upstream,
+# so link resolution must match case-insensitively too.
+_SURFACE_TO_CANON = {"bsde": "Backward SDE", "feynman-kac": "Nonlinear Feynman-Kac"}
 
 
-def test_defines_edge_rows_maps_surface_to_canonical_and_skips_unknown():
+def test_defines_edge_rows_is_case_insensitive_and_skips_unknown():
+    # "BSDE" (upper) must resolve against the lowercased "bsde" key; "Ghost Concept" is unknown.
     defs = [{"term": "BSDE", "statement": "$s$", "defines": ["BSDE", "Ghost Concept"]}]
     rows, skipped = defines_edge_rows("p1", defs, _SURFACE_TO_CANON)
     assert rows == [{"def_id": def_id("p1", "$s$"), "canonical": "Backward SDE"}]
-    assert skipped == 1   # "Ghost Concept" not in the map
+    assert skipped == 1
 
 
-def test_uses_edge_rows_maps_surface_to_canonical_and_skips_unknown():
+def test_uses_edge_rows_is_case_insensitive_and_skips_unknown():
     results = [{"name": "T1", "kind": "theorem", "statement": "$x=y$",
                 "uses": ["BSDE", "Feynman-Kac", "Nope"]}]
     rows, skipped = uses_edge_rows("p1", results, _SURFACE_TO_CANON)
@@ -331,13 +336,26 @@ def test_uses_edge_rows_maps_surface_to_canonical_and_skips_unknown():
     assert skipped == 1
 
 
+def test_result_name_index_drops_empty_and_ambiguous_labels():
+    rrows = [
+        {"name": "Theorem 1", "id": "p1:theorem:aaa"},
+        {"name": "Theorem 1", "id": "p1:theorem:bbb"},   # duplicate label → both dropped
+        {"name": "Lemma 2.4", "id": "p1:lemma:ccc"},
+        {"name": "", "id": "p1:theorem:ddd"},            # empty label → dropped
+    ]
+    assert result_name_index(rrows) == {"Lemma 2.4": "p1:lemma:ccc"}
+
+
 def test_depends_on_edge_rows_maps_names_and_skips_self_and_unknown():
     results = [
         {"name": "Theorem 1", "kind": "theorem", "statement": "$a$",
          "depends_on": ["Lemma 2.4", "Theorem 1", "Missing"]},
         {"name": "Lemma 2.4", "kind": "lemma", "statement": "$b$", "depends_on": []},
     ]
-    name_to_id = {r["name"]: result_id("p1", r["kind"], r["statement"]) for r in results}
+    # Build the map exactly as the asset does (collision-safe), so the test proves real behavior.
+    name_to_id = result_name_index(
+        [{"name": r["name"], "id": result_id("p1", r["kind"], r["statement"])} for r in results]
+    )
     rows, skipped = depends_on_edge_rows("p1", results, name_to_id)
     assert rows == [{"res_id": result_id("p1", "theorem", "$a$"),
                      "dep_id": result_id("p1", "lemma", "$b$")}]
@@ -354,14 +372,30 @@ Expected: FAIL — `ImportError: cannot import name 'defines_edge_rows'`.
 In `pipeline/assets/graph_write.py`, add after the `result_rows` function:
 
 ```python
+def result_name_index(rrows: list[dict]) -> dict[str, str]:
+    """Map result label -> result id, EXCLUDING empty and ambiguous (duplicate) labels.
+
+    Result identity is (kind, normalized statement), NOT name, so two distinct results can
+    share a label. Keying a plain dict on name would let a depends_on reference resolve to the
+    wrong Result (last-wins). Dropping ambiguous labels makes those references skip+count
+    instead of fabricating a wrong edge.
+    """
+    counts: dict[str, int] = {}
+    for r in rrows:
+        if r["name"]:
+            counts[r["name"]] = counts.get(r["name"], 0) + 1
+    return {r["name"]: r["id"] for r in rrows if r["name"] and counts[r["name"]] == 1}
+
+
 def defines_edge_rows(paper_id: str, definitions: list[dict],
                       surface_to_canon: dict[str, str]) -> tuple[list[dict], int]:
-    """Definition -> Concept rows. Skips defines names not in the surface→canonical map."""
+    """Definition -> Concept rows. `surface_to_canon` is keyed on LOWERCASED surface names
+    (concepts are deduped case-insensitively upstream). Skips names with no canonical."""
     rows, skipped = [], 0
     for d in definitions:
         did = def_id(paper_id, d["statement"])
         for name in d.get("defines", []):
-            canon = surface_to_canon.get(name)
+            canon = surface_to_canon.get(name.lower())
             if canon is None:
                 skipped += 1
                 continue
@@ -371,12 +405,13 @@ def defines_edge_rows(paper_id: str, definitions: list[dict],
 
 def uses_edge_rows(paper_id: str, results: list[dict],
                    surface_to_canon: dict[str, str]) -> tuple[list[dict], int]:
-    """Result -> Concept rows. Skips uses names not in the surface→canonical map."""
+    """Result -> Concept rows. `surface_to_canon` is keyed on LOWERCASED surface names.
+    Skips names with no canonical."""
     rows, skipped = [], 0
     for r in results:
         rid = result_id(paper_id, r["kind"], r["statement"])
         for name in r.get("uses", []):
-            canon = surface_to_canon.get(name)
+            canon = surface_to_canon.get(name.lower())
             if canon is None:
                 skipped += 1
                 continue
@@ -386,7 +421,7 @@ def uses_edge_rows(paper_id: str, results: list[dict],
 
 def depends_on_edge_rows(paper_id: str, results: list[dict],
                          name_to_result_id: dict[str, str]) -> tuple[list[dict], int]:
-    """Result -> Result rows. Skips unknown result names and self-dependencies."""
+    """Result -> Result rows. Skips unknown/ambiguous result names and self-dependencies."""
     rows, skipped = [], 0
     for r in results:
         rid = result_id(paper_id, r["kind"], r["statement"])
@@ -452,8 +487,10 @@ UNWIND $rows AS row
 In the asset body, immediately after the existing `s.run(WRITE_RESULTS, paper_id=paper_id, rows=rrows)` line, insert:
 
 ```python
-        surface_to_canon = {c.get("surface", c["name"]): c["name"] for c in concepts}
-        name_to_result_id = {r["name"]: r["id"] for r in rrows if r["name"]}
+        # Lowercased keys: concepts are deduped case-insensitively upstream, so link names
+        # (which may differ in case from the kept concept) must resolve case-insensitively.
+        surface_to_canon = {c.get("surface", c["name"]).lower(): c["name"] for c in concepts}
+        name_to_result_id = result_name_index(rrows)  # collision-safe (drops ambiguous labels)
         def_edges, sk_def = defines_edge_rows(paper_id, resolved.get("definitions", []),
                                               surface_to_canon)
         use_edges, sk_use = uses_edge_rows(paper_id, resolved.get("results", []),
@@ -465,7 +502,7 @@ In the asset body, immediately after the existing `s.run(WRITE_RESULTS, paper_id
         s.run(WRITE_RESULT_DEPENDS, rows=dep_edges)
 ```
 
-(`concepts`, `rrows`, and `resolved` are already in scope from earlier in the asset body.)
+(`concepts`, `rrows`, and `resolved` are already in scope from earlier in the asset body; `result_name_index` is defined in the same module by Task 4.)
 
 - [ ] **Step 3: Add counts to the returned metadata**
 
@@ -510,8 +547,12 @@ Append to `tests/integration/test_end_to_end.py`:
 
 ```python
 @pytest.mark.integration
-def test_within_paper_edges_present_and_idempotent():
-    """DEFINES/USES/DEPENDS_ON edges are written, and a re-run does not duplicate them."""
+def test_within_paper_edges_idempotent():
+    """Re-running a paper does not duplicate DEFINES/USES/DEPENDS_ON edges (the deterministic
+    guarantee). NOTE: edge *presence* is not asserted here — it depends on the LLM populating
+    defines/uses/depends_on with names that resolve to listed concepts/results, which is
+    fixture- and model-dependent. To guarantee presence, point INTEGRATION_FIXTURE_HASH at a
+    curated paper known to yield each edge type and add per-type assertions below."""
     from dagster import DagsterInstance
     instance = DagsterInstance.get()
     key = _required_env("INTEGRATION_FIXTURE_HASH")
@@ -534,15 +575,13 @@ def test_within_paper_edges_present_and_idempotent():
 
     materialize(_ASSETS, partition_key=key, resources=_res(), instance=instance)
     first = edge_counts()
-    # At least one edge type should be populated for a real maths paper.
-    assert first["defines"] + first["uses"] + first["depends_on"] > 0
     materialize(_ASSETS, partition_key=key, resources=_res(), instance=instance)
     assert edge_counts() == first   # MERGE on stable ids ⇒ no duplicate edges on re-run
 ```
 
 - [ ] **Step 2: Run the new integration test (requires live services + fixtures)**
 
-Run: `uv run --extra dev pytest tests/integration/test_end_to_end.py::test_within_paper_edges_present_and_idempotent --run-integration -v`
+Run: `uv run --extra dev pytest tests/integration/test_end_to_end.py::test_within_paper_edges_idempotent --run-integration -v`
 Expected: PASS when services are up and `INTEGRATION_FIXTURE_HASH` points at a fixture PDF; otherwise SKIP (missing env var). If you cannot run live services, confirm the test is collected (not erroring) with: `uv run --extra dev pytest tests/integration/test_end_to_end.py --collect-only -q`.
 
 - [ ] **Step 3: Commit**
@@ -554,12 +593,37 @@ git commit -m "test(integration): assert DEFINES/USES/DEPENDS_ON edges + idempot
 
 ---
 
+## Task 7: Update the README
+
+The README still describes the entities as islands and omits the new edges. Bring it in line so the docs don't contradict the shipped graph.
+
+**Files:**
+- Modify: `README.md`
+
+- [ ] **Step 1: Update the `graph_write` description**
+
+Find the `graph_write` line in the "What it does" section (it currently lists "`Chunk`/`Concept`/`Definition`/`Result` nodes, `Paper→Concept` `DISCUSSES`/`DERIVED_FROM`, and `CITES` edges") and add the three new edges, e.g. append: "; plus `Definition–DEFINES→Concept`, `Result–USES→Concept`, and `Result–DEPENDS_ON→Result` (within-paper semantic links)."
+
+- [ ] **Step 2: Update the Mermaid `graph_write` node**
+
+In the asset-DAG Mermaid block, extend the `write` node label to mention the new edges (e.g. add a line "DEFINES · USES · DEPENDS_ON").
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md
+git commit -m "docs: note DEFINES/USES/DEPENDS_ON edges in README"
+```
+
+---
+
 ## Done criteria
 
 - `uv run --extra dev pytest` is green (unit suite).
-- New edges appear in the graph for a real paper and re-ingest is idempotent (integration).
-- `skipped_refs` is visible in the `graph_write` materialization metadata, surfacing any references the LLM made to entities it did not actually list.
+- Re-ingest is idempotent for the new edges (integration); edge *presence* is fixture/model-dependent and only asserted with a curated fixture (see Task 6 note).
+- `skipped_refs` is visible in the `graph_write` materialization metadata, surfacing any references the LLM made to entities it did not actually list (including names dropped for case/collision reasons).
 - `pipeline/schema.py`, `pipeline/extraction_anthropic.py`, and `pipeline/assets/extracted_graph.py` are unchanged (edges already declared; new fields flow through the shared models / `model_dump`).
+- **Stale-artifact migration is deliberate, not vestigial:** the `c.get("surface", c["name"])` fallback and the `d.get("defines", [])`/`r.get("uses"/"depends_on", [])` reads mean `graph_write` run on an *old* `resolved.json` (pre-`surface`, pre-link-fields) degrades gracefully to "no new edges, no crash." The normal path re-runs extraction/resolution and populates the fields.
 
 ## Out of scope (Phase 2 — committed, separate plan)
 
