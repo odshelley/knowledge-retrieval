@@ -91,3 +91,36 @@ def test_citation_backfill_b_then_a():
         n = s.run("MATCH (a:Paper {document_id:$a})-[:CITES]->(b:Paper {document_id:$b}) "
                   "RETURN count(*) AS n", a=key_a, b=key_b).single()["n"]
         assert n == 1
+
+
+@pytest.mark.integration
+def test_within_paper_edges_idempotent():
+    """Re-running a paper does not duplicate DEFINES/USES/DEPENDS_ON edges (the deterministic
+    guarantee). NOTE: edge *presence* is not asserted here — it depends on the LLM populating
+    defines/uses/depends_on with names that resolve to listed concepts/results, which is
+    fixture- and model-dependent. To guarantee presence, point INTEGRATION_FIXTURE_HASH at a
+    curated paper known to yield each edge type and add per-type assertions below."""
+    from dagster import DagsterInstance
+    instance = DagsterInstance.get()
+    key = _required_env("INTEGRATION_FIXTURE_HASH")
+    instance.add_dynamic_partitions(DOCUMENTS_PARTITION, [key])
+
+    def edge_counts():
+        new = new_neo4j_from_env()
+        with new.get_driver().session(database=new.database) as s:
+            return {
+                "defines": s.run(
+                    "MATCH (:Paper {document_id:$k})-[:STATES]->(:Definition)-[e:DEFINES]->(:Concept) "
+                    "RETURN count(e) AS n", k=key).single()["n"],
+                "uses": s.run(
+                    "MATCH (:Paper {document_id:$k})-[:STATES]->(:Result)-[e:USES]->(:Concept) "
+                    "RETURN count(e) AS n", k=key).single()["n"],
+                "depends_on": s.run(
+                    "MATCH (:Paper {document_id:$k})-[:STATES]->(:Result)-[e:DEPENDS_ON]->(:Result) "
+                    "RETURN count(e) AS n", k=key).single()["n"],
+            }
+
+    materialize(_ASSETS, partition_key=key, resources=_res(), instance=instance)
+    first = edge_counts()
+    materialize(_ASSETS, partition_key=key, resources=_res(), instance=instance)
+    assert edge_counts() == first   # MERGE on stable ids ⇒ no duplicate edges on re-run
