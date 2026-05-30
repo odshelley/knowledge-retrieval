@@ -128,6 +128,14 @@ def extract_from_chunk(client, model: str, chunk: str, timeout: float = 60.0) ->
     return resp.choices[0].message.parsed
 
 
+def _extend_unique(dst: list[str], src: list[str]) -> None:
+    """Append items from src not already in dst, preserving order. Mutates dst in place
+    (and thus the kept model it belongs to); inputs are not read again after merge."""
+    for item in src:
+        if item not in dst:
+            dst.append(item)
+
+
 def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     # Chunks overlap, so the same concept/definition/result is extracted from adjacent chunks.
     # Dedup all three by the same normalized key graph_write uses for ids, so overlap doesn't
@@ -139,17 +147,27 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
             if c.name.lower() not in seen_c:
                 seen_c.add(c.name.lower())
                 concepts.append(c)
-    seen_d, definitions = set(), []
+    seen_d: dict[str, Definition] = {}
+    definitions = []
     for p in parts:
         for d in p.definitions:
-            if normalize_statement(d.statement) not in seen_d:
-                seen_d.add(normalize_statement(d.statement))
+            k = normalize_statement(d.statement)
+            kept = seen_d.get(k)
+            if kept is None:
+                seen_d[k] = d
                 definitions.append(d)
-    seen_r, results = set(), []
+            else:
+                _extend_unique(kept.defines, d.defines)
+    seen_r: dict[tuple[str, str], Result] = {}
+    results = []
     for p in parts:
         for r in p.results:
-            key = (r.kind, normalize_statement(r.statement))
-            if key not in seen_r:
-                seen_r.add(key)
+            k = (r.kind, normalize_statement(r.statement))
+            kept = seen_r.get(k)
+            if kept is None:
+                seen_r[k] = r
                 results.append(r)
+            else:
+                _extend_unique(kept.uses, r.uses)
+                _extend_unique(kept.depends_on, r.depends_on)
     return ExtractionResult(concepts=concepts, definitions=definitions, results=results)

@@ -68,3 +68,22 @@ def test_merge_results_keeps_distinct_results_of_different_kind():
         Result(name="B", kind="lemma", statement="$x=y$"),  # same text, different kind ⇒ distinct
     ])
     assert len(merge_results([p]).results) == 2
+
+
+def test_merge_results_unions_link_lists_across_overlapping_chunks():
+    p1 = ExtractionResult(
+        definitions=[Definition(term="BSDE", statement="$s$", defines=["BSDE"])],
+        results=[Result(name="T1", kind="theorem", statement="$x=y$",
+                        uses=["BSDE"], depends_on=["Lemma 2.4"])],
+    )
+    p2 = ExtractionResult(
+        definitions=[Definition(term="BSDE", statement="$s$", defines=["Backward SDE"])],
+        results=[Result(name="T1", kind="theorem", statement="$x=y$",
+                        uses=["Feynman-Kac"], depends_on=["Lemma 2.4"])],
+    )
+    merged = merge_results([p1, p2])
+    assert len(merged.definitions) == 1
+    assert merged.definitions[0].defines == ["BSDE", "Backward SDE"]   # unioned, order-preserved
+    assert len(merged.results) == 1
+    assert merged.results[0].uses == ["BSDE", "Feynman-Kac"]
+    assert merged.results[0].depends_on == ["Lemma 2.4"]              # deduped, not doubled
