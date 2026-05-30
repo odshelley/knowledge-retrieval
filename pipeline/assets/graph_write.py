@@ -41,6 +41,72 @@ def result_rows(paper_id: str, results: list[dict]) -> list[dict]:
              "kind": r["kind"], "statement": r["statement"]} for r in results]
 
 
+def result_name_index(rrows: list[dict]) -> dict[str, str]:
+    """Map result label -> result id, EXCLUDING empty and ambiguous (duplicate) labels.
+
+    Result identity is (kind, normalized statement), NOT name, so two distinct results can
+    share a label. Keying a plain dict on name would let a depends_on reference resolve to the
+    wrong Result (last-wins). Dropping ambiguous labels makes those references skip+count
+    instead of fabricating a wrong edge.
+    """
+    counts: dict[str, int] = {}
+    for r in rrows:
+        if r["name"]:
+            counts[r["name"]] = counts.get(r["name"], 0) + 1
+    return {r["name"]: r["id"] for r in rrows if r["name"] and counts[r["name"]] == 1}
+
+
+def defines_edge_rows(paper_id: str, definitions: list[dict],
+                      surface_to_canon: dict[str, str]) -> tuple[list[dict], int]:
+    """Definition -> Concept rows. `surface_to_canon` is keyed on LOWERCASED surface names
+    (concepts are deduped case-insensitively upstream). Skips names with no canonical."""
+    rows, skipped = [], 0
+    for d in definitions:
+        did = def_id(paper_id, d["statement"])
+        for name in d.get("defines", []):
+            canon = surface_to_canon.get(name.lower())
+            if canon is None:
+                skipped += 1
+                continue
+            rows.append({"def_id": did, "canonical": canon})
+    return rows, skipped
+
+
+def uses_edge_rows(paper_id: str, results: list[dict],
+                   surface_to_canon: dict[str, str]) -> tuple[list[dict], int]:
+    """Result -> Concept rows. `surface_to_canon` is keyed on LOWERCASED surface names.
+    Skips names with no canonical."""
+    rows, skipped = [], 0
+    for r in results:
+        rid = result_id(paper_id, r["kind"], r["statement"])
+        for name in r.get("uses", []):
+            canon = surface_to_canon.get(name.lower())
+            if canon is None:
+                skipped += 1
+                continue
+            rows.append({"res_id": rid, "canonical": canon})
+    return rows, skipped
+
+
+def depends_on_edge_rows(paper_id: str, results: list[dict],
+                         name_to_result_id: dict[str, str]) -> tuple[list[dict], int]:
+    """Result -> Result rows. Skips unknown/ambiguous result names and self-dependencies.
+
+    `name_to_result_id` must be collision-safe (e.g. from `result_name_index`) — ambiguous
+    labels are expected to be filtered upstream, not here.
+    """
+    rows, skipped = [], 0
+    for r in results:
+        rid = result_id(paper_id, r["kind"], r["statement"])
+        for dep_name in r.get("depends_on", []):
+            dep = name_to_result_id.get(dep_name)
+            if dep is None or dep == rid:
+                skipped += 1
+                continue
+            rows.append({"res_id": rid, "dep_id": dep})
+    return rows, skipped
+
+
 # --- Cypher -------------------------------------------------------------------
 WRITE_CHUNKS = """
 MERGE (d:Document {id:$doc_id}) SET d.paper_id = $paper_id
