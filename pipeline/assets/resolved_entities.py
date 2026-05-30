@@ -13,6 +13,17 @@ from pipeline.resolver import Decision, decide, lookup_alias, nearest, record_de
 from pipeline.storage import EXTRACTED_BUCKET
 
 
+def resolved_concept_row(surface: str, canonical: str, kind: str, action: str,
+                         embedding: list[float]) -> dict:
+    """One resolved-concept record. `surface` is the name as extracted (will be used by graph_write
+    to map defines/uses references); `name` is the canonical node key; `embedding` is upserted
+    by graph_write keyed on the canonical name. graph_write upserts this embedding on every run
+    keyed by canonical name (idempotent overwrite), so a Concept node and its pgvector row stay
+    in sync."""
+    return {"surface": surface, "name": canonical, "kind": kind,
+            "action": action, "embedding": embedding}
+
+
 @asset(partitions_def=documents_partitions_def(), deps=["extracted_graph"],
        required_resource_keys={"minio", "openai", "postgres"})
 def resolved_entities(context) -> MaterializeResult:
@@ -46,12 +57,10 @@ def resolved_entities(context) -> MaterializeResult:
                 counts[action.value] += 1
                 record_decision(cur, c["name"], canonical if action == Decision.MERGE else None,
                                 "Concept", score, action.value, context.run_id)
-                resolved.append({
-                    "name": canonical, "kind": c["kind"], "action": action.value,
-                    # graph_write upserts this embedding keyed by canonical name on every run
-                    # (idempotent overwrite) so a Concept node can never lack a pgvector row.
-                    "embedding": v,
-                })
+                resolved.append(resolved_concept_row(
+                    surface=c["name"], canonical=canonical, kind=c["kind"],
+                    action=action.value, embedding=v,
+                ))
         conn.commit()  # ONLY decision rows are written here — no Neo4j, no embedding upsert.
 
     payload["concepts"] = resolved
