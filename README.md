@@ -14,7 +14,7 @@ Point `SOURCE_DIR` at a folder of paper PDFs. A daily Dagster schedule discovers
 4. **Chunks** equation-aware (never splitting a LaTeX block) and **embeds** chunks (OpenAI `text-embedding-3-small`).
 5. **Extracts** typed `Concept`s (`#concept`/`#method`), `Definition`s, and `Result`s (theorem/lemma/…) against the alethograph schema.
 6. **Resolves** each concept against existing canonicals via pgvector NN search (conservative, split-when-unsure), recording every decision to Postgres for a future human-review loop.
-7. **Writes** the derived graph (`graph_write` is the sole writer): `Chunk`/`Concept`/`Definition`/`Result` nodes, `Paper→Concept` `DISCUSSES`/`DERIVED_FROM`, and `CITES` edges (forward + backward backfill via a `pending_citations` table).
+7. **Writes** the derived graph (`graph_write` is the sole writer): `Chunk`/`Concept`/`Definition`/`Result` nodes, `Paper→Concept` `DISCUSSES`/`DERIVED_FROM`, and `CITES` edges (forward + backward backfill via a `pending_citations` table); plus the within-paper semantic links `Definition–DEFINES→Concept`, `Result–USES→Concept`, and `Result–DEPENDS_ON→Result`.
 8. **Analyses** the paper with Claude into a structured, research-skill-shaped JSON (`Summary` node + canonical LaTeX-bearing artifact).
 
 Everything is keyed by content hash, so re-running a document converges (idempotent `MERGE`s), never duplicates.
@@ -46,7 +46,7 @@ flowchart LR
     extract["extracted_graph<br/>typed concepts · definitions · results"]
     resolve["resolved_entities<br/>pgvector NN · decide-only<br/>decision trail → Postgres"]
     analysis["paper_analysis<br/>Claude → Summary node + canonical JSON"]:::sink
-    write["graph_write — SOLE writer<br/>Chunk · Concept (+pgvector)<br/>Definition · Result · CITES"]:::writer
+    write["graph_write — SOLE writer<br/>Chunk · Concept (+pgvector)<br/>Definition · Result · CITES<br/>DEFINES · USES · DEPENDS_ON"]:::writer
 
     sched --> raw --> parse
     parse --> triage
