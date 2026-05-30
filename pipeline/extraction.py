@@ -1,126 +1,113 @@
 """LLM extraction against the alethograph schema. Prompts ported from the research skill
-+ spec/03-extraction-prompts.md scaffold; alethograph label vocabulary + few-shots."""
++ spec/03-extraction-prompts.md scaffold; alethograph label vocabulary + few-shots.
+
+The extraction targets are defined once, as Pydantic models with per-field guidance. Both the
+OpenAI and Claude paths hand these models to the SDK's ``.parse()`` helper, which derives the
+structured-output JSON schema, enforces it on the provider, and validates the response back into
+these objects — so there is no separate hand-written schema to keep in sync. The Field
+descriptions ARE the per-field instructions the model sees; keep them precise."""
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 
 from pipeline.text_norm import normalize_statement
 
-VALID_RESULT_KINDS = {"theorem", "lemma", "proposition", "corollary"}
-VALID_CONCEPT_KINDS = {"concept", "method"}
 
-# Provider-neutral JSON schema for structured extraction output. The Anthropic path uses it
-# via output_config.format; the OpenAI path uses response_format=json_object.
-EXTRACTION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "concepts": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "kind": {"type": "string", "enum": ["concept", "method"]},
-                },
-                "required": ["name", "kind"],
-                "additionalProperties": False,
-            },
-        },
-        "definitions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "term": {"type": "string"},
-                    "statement": {"type": "string"},
-                },
-                "required": ["term", "statement"],
-                "additionalProperties": False,
-            },
-        },
-        "results": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "kind": {"type": "string", "enum": ["theorem", "lemma", "proposition", "corollary"]},
-                    "statement": {"type": "string"},
-                },
-                "required": ["name", "kind", "statement"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["concepts", "definitions", "results"],
-    "additionalProperties": False,
-}
+class Concept(BaseModel):
+    name: str = Field(
+        description="Short, self-contained name of the idea/object/framework or "
+        "algorithm/technique, as it would head a glossary entry — no surrounding prose."
+    )
+    kind: Literal["concept", "method"] = Field(
+        default="concept",
+        description='"concept" for a theoretical idea, object, or framework; '
+        '"method" for an implementable algorithm, technique, or procedure.',
+    )
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, v: str) -> str:
+        return v.strip()
+
+
+class Definition(BaseModel):
+    term: str = Field(description="The exact term being defined.")
+    statement: str = Field(
+        description="The full formal definition as stated in the text, "
+        "preserving LaTeX / math notation verbatim."
+    )
+
+    @field_validator("term")
+    @classmethod
+    def _strip_term(cls, v: str) -> str:
+        return v.strip()
+
+
+class Result(BaseModel):
+    name: str = Field(
+        default="",
+        description='Label of the result as it appears, e.g. "Theorem 3.2" or "Lemma 1". '
+        "Empty string if the text gives no label.",
+    )
+    kind: Literal["theorem", "lemma", "proposition", "corollary"] = Field(
+        description="The type of formal result."
+    )
+    statement: str = Field(
+        description="The full statement of the result, preserving LaTeX / math notation "
+        "verbatim. Exclude any proof."
+    )
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, v: str) -> str:
+        return v.strip()
+
+
+class ExtractionResult(BaseModel):
+    concepts: list[Concept] = Field(
+        default_factory=list,
+        description="3-7 major theoretical ideas/objects/frameworks (kind=concept) or "
+        "implementable algorithms/techniques (kind=method) present in the chunk. "
+        "Each must be self-contained.",
+    )
+    definitions: list[Definition] = Field(
+        default_factory=list,
+        description="Formal definitions stated in the chunk.",
+    )
+    results: list[Result] = Field(
+        default_factory=list,
+        description="Theorems, lemmas, propositions, and corollaries stated in the chunk.",
+    )
+
 
 SYSTEM_PROMPT = """You are an information-extraction assistant for STEM research papers \
 (most often rooted in mathematics, statistics, or AI / machine learning, but spanning the \
-sciences and engineering broadly). From the chunk, extract:
-- concepts: 3-7 major theoretical ideas/objects/frameworks (kind="concept") or implementable \
-algorithms/techniques (kind="method"). Each must be self-contained.
-- definitions: formal definitions, with the term and the statement (preserve LaTeX).
-- results: theorems/lemmas/propositions/corollaries, with name (e.g. "Theorem 3.2"), kind, \
-and statement (preserve LaTeX).
-Return STRICT JSON: {"concepts":[{"name","kind"}],"definitions":[{"term","statement"}],\
-"results":[{"name","kind","statement"}]}. Emit nothing not asserted by the text."""
-
-
-@dataclass
-class Concept:
-    name: str
-    kind: str  # concept | method
-
-
-@dataclass
-class Definition:
-    term: str
-    statement: str
-
-
-@dataclass
-class Result:
-    name: str
-    kind: str  # theorem | lemma | proposition | corollary
-    statement: str
-
-
-@dataclass
-class ExtractionResult:
-    concepts: list[Concept] = field(default_factory=list)
-    definitions: list[Definition] = field(default_factory=list)
-    results: list[Result] = field(default_factory=list)
+sciences and engineering broadly). From the chunk, populate the concepts, definitions, and \
+results of the response schema, following each field's description. Emit nothing not asserted \
+by the text."""
 
 
 def parse_extraction(payload: dict) -> ExtractionResult:
-    concepts = []
-    for c in payload.get("concepts", []):
-        kind = c.get("kind", "concept")
-        if kind not in VALID_CONCEPT_KINDS:
-            raise ValueError(f"bad concept kind: {kind}")
-        concepts.append(Concept(name=c["name"].strip(), kind=kind))
-    definitions = [Definition(term=d["term"].strip(), statement=d["statement"])
-                   for d in payload.get("definitions", [])]
-    results = []
-    for r in payload.get("results", []):
-        if r.get("kind") not in VALID_RESULT_KINDS:
-            raise ValueError(f"bad result kind: {r.get('kind')}")
-        results.append(Result(name=r.get("name", ""), kind=r["kind"], statement=r["statement"]))
-    return ExtractionResult(concepts=concepts, definitions=definitions, results=results)
+    """Validate a raw JSON dict into an ExtractionResult.
+
+    Retained for callers/tests that already hold a plain dict; the ``.parse()``-based extract
+    paths get an ExtractionResult straight from the SDK and don't go through here. Raises
+    ``pydantic.ValidationError`` (a ``ValueError`` subclass) on an unknown kind or missing field.
+    """
+    return ExtractionResult.model_validate(payload)
 
 
 def extract_from_chunk(client, model: str, chunk: str, timeout: float = 60.0) -> ExtractionResult:
-    resp = client.chat.completions.create(
+    resp = client.chat.completions.parse(
         model=model,
         messages=[{"role": "system", "content": SYSTEM_PROMPT},
                   {"role": "user", "content": chunk[:12000]}],
-        response_format={"type": "json_object"},
+        response_format=ExtractionResult,
         timeout=timeout,
     )
-    return parse_extraction(json.loads(resp.choices[0].message.content))
+    return resp.choices[0].message.parsed
 
 
 def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:

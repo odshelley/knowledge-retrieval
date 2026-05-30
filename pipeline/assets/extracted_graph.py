@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict
 
 from dagster import MaterializeResult, MetadataValue, asset
 
@@ -44,9 +43,9 @@ def extracted_graph(context) -> MaterializeResult:
         raise QuarantineError(f"{key}: extraction returned unparseable/invalid JSON") from exc
 
     payload = {
-        "concepts": [asdict(c) for c in merged.concepts],
-        "definitions": [asdict(d) for d in merged.definitions],
-        "results": [asdict(r) for r in merged.results],
+        "concepts": [c.model_dump() for c in merged.concepts],
+        "definitions": [d.model_dump() for d in merged.definitions],
+        "results": [r.model_dump() for r in merged.results],
     }
     s3.put_object(Bucket=EXTRACTED_BUCKET, Key=f"{key}.json",
                   Body=json.dumps(payload).encode("utf-8"))
