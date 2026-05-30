@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
       POSTGRES_DB: ${POSTGRES_DB:-dagster}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,8 +26,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -47,6 +47,12 @@ services:
       mc mb -p local/pdfs &&
       mc mb -p local/legacy-summaries &&
       mc mb -p local/vault-snapshots &&
+      mc mb -p local/raw &&
+      mc mb -p local/parsed &&
+      mc mb -p local/chunks &&
+      mc mb -p local/triage &&
+      mc mb -p local/extracted &&
+      mc mb -p local/analysis &&
       echo 'buckets ready'
       "
 
@@ -67,6 +73,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dagster}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
       POSTGRES_DB: ${POSTGRES_DB:-dagster}
+      RESOLVER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-dagster}:${POSTGRES_PASSWORD:-dagster}@postgres:5432/${POSTGRES_DB:-dagster}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
@@ -80,12 +87,14 @@ services:
       NEO4J_LEGACY_DATABASE: ${NEO4J_LEGACY_DATABASE:-neo4j}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SOURCE_DIR: ${SOURCE_DIR}
     volumes:
       - ./pipeline:/opt/code/pipeline:ro
       - ./scripts:/opt/code/scripts:ro
       - ./data:/opt/code/data:ro
       - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
       - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
+      # - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
     ports:
       - "3000:3000"
 
@@ -106,6 +115,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dagster}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
       POSTGRES_DB: ${POSTGRES_DB:-dagster}
+      RESOLVER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-dagster}:${POSTGRES_PASSWORD:-dagster}@postgres:5432/${POSTGRES_DB:-dagster}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
@@ -119,12 +129,14 @@ services:
       NEO4J_LEGACY_DATABASE: ${NEO4J_LEGACY_DATABASE:-neo4j}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SOURCE_DIR: ${SOURCE_DIR}
     volumes:
       - ./pipeline:/opt/code/pipeline:ro
       - ./scripts:/opt/code/scripts:ro
       - ./data:/opt/code/data:ro
       - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
       - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
+      # - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
     command: ["uv", "run", "dagster-daemon", "run", "-w", "/opt/dagster_home/workspace.yaml"]
 
 volumes:

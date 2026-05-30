@@ -19,4 +19,9 @@ RUN uv sync --frozen --no-dev
 ENV DAGSTER_HOME=/opt/dagster_home
 ENV PYTHONPATH=/opt/code
 
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /opt/dagster_home \
+    && chown -R appuser:appuser /opt/dagster_home /opt/code
+USER appuser
+
 CMD ["uv", "run", "dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster_home/workspace.yaml"]

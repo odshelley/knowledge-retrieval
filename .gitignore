@@ -22,3 +22,7 @@ data/pdfpath_to_apply.json
 
 # External tutorial — its own git repo, not part of this project
 neo4j_course/
+
+# brainstorming/visual-companion + codebase-walkthrough scratch
+.superpowers/
+.codebase-walkthrough/

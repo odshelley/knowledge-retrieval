@@ -1,14 +1,10 @@
-"""Knowledge-graph schema for the new Aura DB.
+"""Knowledge-graph schema for the alethograph Aura DB.
 
-Mirrors the legacy alethograph DB 1:1 (labels, relationship types, directions).
-Source of truth: ``/tmp/legacy_schema.json`` (regenerable via the snippet in
-``pipeline/assets/legacy_mirror.py``).
-
-Used by:
-- SimpleKGPipeline (NODE_TYPES, RELATIONSHIP_TYPES, PATTERNS) so LLM extractions
-  match the legacy graph shape.
-- scripts/init_neo4j.py (INIT_CYPHER) for constraints + the chunk vector index.
-- pipeline/assets/legacy_mirror.py (LABEL_KEY) for the structural mirror's MERGE keys.
+NODE_TYPES, RELATIONSHIP_TYPES, and PATTERNS define the graph shape used by the bespoke
+builder pipeline. INIT_CYPHER (and iter_init_statements) set up Neo4j constraints and the
+chunk vector index; consumed by scripts/init_neo4j.py and scripts/reset_graph.py.
+PATTERNS documents the allowed (start_label, relationship, end_label) triples; extraction
+validates extracted triples against this set.
 """
 from __future__ import annotations
 
@@ -20,6 +16,9 @@ NODE_TYPES = [
     "Topic",
     "Researcher",
     "Idea",
+    "Definition",
+    "Result",
+    "Summary",
 ]
 
 # Verbatim from legacy DB. Verbs are subject-first
@@ -44,6 +43,11 @@ RELATIONSHIP_TYPES = [
     "USES_BOOK",
     "INVOLVES",
     "EVIDENCED_BY",
+    "STATES",
+    "DEFINES",
+    "USES",
+    "DEPENDS_ON",
+    "HAS_SUMMARY",
 ]
 
 # Verbatim patterns from the legacy DB (start, rel, end).
@@ -76,6 +80,12 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Idea",       "EVIDENCED_BY", "Paper"),
     ("Idea",       "STUDIES",      "Topic"),
     ("Idea",       "HAS_TOPIC",    "Topic"),
+    ("Paper",      "STATES",       "Definition"),
+    ("Paper",      "STATES",       "Result"),
+    ("Definition", "DEFINES",      "Concept"),
+    ("Result",     "USES",         "Concept"),
+    ("Result",     "DEPENDS_ON",   "Result"),
+    ("Paper",      "HAS_SUMMARY",  "Summary"),
 ]
 
 INIT_CYPHER = """
@@ -120,6 +130,15 @@ CREATE VECTOR INDEX chunk_embedding IF NOT EXISTS
       `vector.similarity_function`: 'cosine'
     }
   };
+
+CREATE CONSTRAINT definition_id IF NOT EXISTS
+  FOR (d:Definition) REQUIRE d.id IS UNIQUE;
+
+CREATE CONSTRAINT result_id IF NOT EXISTS
+  FOR (r:Result) REQUIRE r.id IS UNIQUE;
+
+CREATE CONSTRAINT summary_id IF NOT EXISTS
+  FOR (s:Summary) REQUIRE s.id IS UNIQUE;
 """
 
 

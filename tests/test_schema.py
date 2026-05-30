@@ -1,4 +1,7 @@
 from pipeline import schema
+from pipeline.schema import (
+    NODE_TYPES, RELATIONSHIP_TYPES, PATTERNS, iter_init_statements,
+)
 
 
 def test_node_types_include_paper_and_topic():
@@ -32,3 +35,32 @@ def test_init_cypher_uses_idempotent_constraints():
     for stmt in schema.iter_init_statements():
         if stmt.upper().startswith(("CREATE CONSTRAINT", "CREATE VECTOR INDEX", "CREATE INDEX")):
             assert "IF NOT EXISTS" in stmt.upper(), f"non-idempotent: {stmt}"
+
+
+def test_new_node_types_present():
+    for label in ("Definition", "Result", "Summary"):
+        assert label in NODE_TYPES
+
+
+def test_new_relationship_types_present():
+    for rel in ("STATES", "DEFINES", "USES", "DEPENDS_ON", "HAS_SUMMARY"):
+        assert rel in RELATIONSHIP_TYPES
+
+
+def test_new_patterns_present():
+    expected = {
+        ("Paper", "STATES", "Definition"),
+        ("Paper", "STATES", "Result"),
+        ("Definition", "DEFINES", "Concept"),
+        ("Result", "USES", "Concept"),
+        ("Result", "DEPENDS_ON", "Result"),
+        ("Paper", "HAS_SUMMARY", "Summary"),
+    }
+    assert expected.issubset(set(PATTERNS))
+
+
+def test_init_cypher_has_new_constraints():
+    joined = " ".join(iter_init_statements())
+    assert "definition_id" in joined
+    assert "result_id" in joined
+    assert "summary_id" in joined
