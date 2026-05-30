@@ -36,6 +36,32 @@ def test_merge_results_dedupes_definitions_and_results_across_overlapping_chunks
     assert len(merged.definitions) == 1
     assert len(merged.results) == 1
 
+
+def test_parse_extraction_reads_link_fields():
+    payload = {
+        "concepts": [{"name": "BSDE", "kind": "concept"}],
+        "definitions": [{"term": "BSDE", "statement": "$dY=...$", "defines": ["BSDE"]}],
+        "results": [{"name": "Thm 1", "kind": "theorem", "statement": "$x=y$",
+                     "uses": ["BSDE"], "depends_on": ["Lemma 2.4"]}],
+    }
+    r = parse_extraction(payload)
+    assert r.definitions[0].defines == ["BSDE"]
+    assert r.results[0].uses == ["BSDE"]
+    assert r.results[0].depends_on == ["Lemma 2.4"]
+
+
+def test_parse_extraction_defaults_link_fields_to_empty():
+    payload = {
+        "concepts": [],
+        "definitions": [{"term": "X", "statement": "s"}],
+        "results": [{"name": "T", "kind": "lemma", "statement": "s"}],
+    }
+    r = parse_extraction(payload)
+    assert r.definitions[0].defines == []
+    assert r.results[0].uses == []
+    assert r.results[0].depends_on == []
+
+
 def test_merge_results_keeps_distinct_results_of_different_kind():
     p = ExtractionResult(results=[
         Result(name="A", kind="theorem", statement="$x=y$"),

@@ -38,6 +38,11 @@ class Definition(BaseModel):
         description="The full formal definition as stated in the text, "
         "preserving LaTeX / math notation verbatim."
     )
+    defines: list[str] = Field(
+        default_factory=list,
+        description="Concept name(s), from the concepts you extract in this same response, "
+        "that this definition introduces. Usually exactly one. Leave empty if unsure.",
+    )
 
     @field_validator("term")
     @classmethod
@@ -57,6 +62,17 @@ class Result(BaseModel):
     statement: str = Field(
         description="The full statement of the result, preserving LaTeX / math notation "
         "verbatim. Exclude any proof."
+    )
+    uses: list[str] = Field(
+        default_factory=list,
+        description="Names of the concepts (from the concepts you extract in this same "
+        "response) that this result invokes or relies on. Use the exact concept name "
+        "strings. Leave empty if none or unsure.",
+    )
+    depends_on: list[str] = Field(
+        default_factory=list,
+        description='Labels of OTHER results this result depends on, e.g. ["Lemma 2.4"]. '
+        "Use the exact result labels as they appear. Leave empty if none or unsure.",
     )
 
     @field_validator("name")
@@ -86,7 +102,9 @@ SYSTEM_PROMPT = """You are an information-extraction assistant for STEM research
 (most often rooted in mathematics, statistics, or AI / machine learning, but spanning the \
 sciences and engineering broadly). From the chunk, populate the concepts, definitions, and \
 results of the response schema, following each field's description. Emit nothing not asserted \
-by the text."""
+by the text. When filling a definition's `defines`, a result's `uses`, or a result's \
+`depends_on`, reference ONLY names you have already produced in this same response; if \
+unsure, leave the list empty."""
 
 
 def parse_extraction(payload: dict) -> ExtractionResult:
