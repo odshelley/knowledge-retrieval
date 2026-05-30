@@ -57,8 +57,9 @@ EXTRACTION_SCHEMA = {
     "additionalProperties": False,
 }
 
-SYSTEM_PROMPT = """You are an information-extraction assistant for academic papers in \
-quantitative finance / stochastics. From the chunk, extract:
+SYSTEM_PROMPT = """You are an information-extraction assistant for STEM research papers \
+(most often rooted in mathematics, statistics, or AI / machine learning, but spanning the \
+sciences and engineering broadly). From the chunk, extract:
 - concepts: 3-7 major theoretical ideas/objects/frameworks (kind="concept") or implementable \
 algorithms/techniques (kind="method"). Each must be self-contained.
 - definitions: formal definitions, with the term and the statement (preserve LaTeX).

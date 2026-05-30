@@ -3,8 +3,9 @@ from __future__ import annotations
 
 # Fixed standing brief replaces the skill's interactive per-paper learning goal (spec §15).
 STANDING_BRIEF = (
-    "Summarise for a quantitative-finance researcher tracking XVA, stochastic analysis, "
-    "and machine-learning methods. Emphasise mathematical contributions and how results connect."
+    "Summarise for a STEM researcher whose work is rooted in mathematics, statistics, and "
+    "AI / machine learning but who reads broadly across the sciences and engineering. "
+    "Emphasise the core technical contributions and how the results connect."
 )
 
 ANALYSIS_FIELDS = [
