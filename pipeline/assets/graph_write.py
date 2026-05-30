@@ -151,6 +151,27 @@ RETURN cited.id AS id LIMIT 1
 """
 MERGE_CITES = "MATCH (a:Paper {id:$citing}),(b:Paper {id:$cited}) MERGE (a)-[:CITES]->(b)"
 
+WRITE_DEFINES = """
+UNWIND $rows AS row
+  MATCH (d:Definition {id: row.def_id})
+  MATCH (c:Concept {name: row.canonical})
+  MERGE (d)-[:DEFINES]->(c)
+"""
+
+WRITE_RESULT_USES = """
+UNWIND $rows AS row
+  MATCH (r:Result {id: row.res_id})
+  MATCH (c:Concept {name: row.canonical})
+  MERGE (r)-[:USES]->(c)
+"""
+
+WRITE_RESULT_DEPENDS = """
+UNWIND $rows AS row
+  MATCH (r1:Result {id: row.res_id})
+  MATCH (r2:Result {id: row.dep_id})
+  MERGE (r1)-[:DEPENDS_ON]->(r2)
+"""
+
 _MATCH_PENDING = ("ref_s2_id=%s OR ref_doi=%s OR ref_arxiv_id=%s OR ref_title_norm=%s")
 
 
@@ -167,9 +188,11 @@ def graph_write(context) -> MaterializeResult:
     paper_id = triage["paper_id"]
     ids = triage.get("identifiers", {})
     concepts = resolved.get("concepts", [])
+    raw_defs = resolved.get("definitions", [])
+    raw_results = resolved.get("results", [])
     crows = concept_rows(concepts)
-    drows = definition_rows(paper_id, resolved.get("definitions", []))
-    rrows = result_rows(paper_id, resolved.get("results", []))
+    drows = definition_rows(paper_id, raw_defs)
+    rrows = result_rows(paper_id, raw_results)
 
     new = context.resources.neo4j_new
     with new.get_driver() as driver, driver.session(database=new.database) as s:
@@ -177,6 +200,17 @@ def graph_write(context) -> MaterializeResult:
         s.run(WRITE_CONCEPTS, paper_id=paper_id, rows=crows)
         s.run(WRITE_DEFINITIONS, paper_id=paper_id, rows=drows)
         s.run(WRITE_RESULTS, paper_id=paper_id, rows=rrows)
+
+        # Lowercased keys: concepts are deduped case-insensitively upstream, so link names
+        # (which may differ in case from the kept concept) must resolve case-insensitively.
+        surface_to_canon = {c.get("surface", c["name"]).lower(): c["name"] for c in concepts}
+        name_to_result_id = result_name_index(rrows)  # collision-safe (drops ambiguous labels)
+        def_edges, sk_def = defines_edge_rows(paper_id, raw_defs, surface_to_canon)
+        use_edges, sk_use = uses_edge_rows(paper_id, raw_results, surface_to_canon)
+        dep_edges, sk_dep = depends_on_edge_rows(paper_id, raw_results, name_to_result_id)
+        s.run(WRITE_DEFINES, rows=def_edges)
+        s.run(WRITE_RESULT_USES, rows=use_edges)
+        s.run(WRITE_RESULT_DEPENDS, rows=dep_edges)
 
         with context.resources.postgres.connect() as conn:
             with conn.cursor() as cur:
@@ -216,4 +250,11 @@ def graph_write(context) -> MaterializeResult:
         "concepts": MetadataValue.int(len(crows)),
         "definitions": MetadataValue.int(len(drows)),
         "results": MetadataValue.int(len(rrows)),
+        "defines": MetadataValue.int(len(def_edges)),
+        "uses": MetadataValue.int(len(use_edges)),
+        "depends_on": MetadataValue.int(len(dep_edges)),
+        "skipped_refs": MetadataValue.int(sk_def + sk_use + sk_dep),
+        "skipped_def_concepts": MetadataValue.int(sk_def),
+        "skipped_use_concepts": MetadataValue.int(sk_use),
+        "skipped_dep_results": MetadataValue.int(sk_dep),
     })
