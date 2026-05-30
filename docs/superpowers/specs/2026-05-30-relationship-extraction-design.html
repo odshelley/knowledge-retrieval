@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relationship Extraction — Design</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--ink:#c9d1d9;--mut:#8b949e;
+        --blue:#58a6ff;--green:#2ea043;--purple:#8957e5;--amber:#d29922;--red:#f85149;}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+       margin:0;padding:0;}
+  .wrap{max-width:860px;margin:0 auto;padding:3rem 1.5rem 6rem;}
+  h1{font-size:2rem;border-bottom:1px solid var(--border);padding-bottom:.6rem;margin-bottom:.3rem}
+  h2{font-size:1.4rem;margin-top:2.6rem;border-bottom:1px solid var(--border);padding-bottom:.35rem;color:#fff}
+  h3{font-size:1.1rem;margin-top:1.8rem;color:var(--blue)}
+  .meta{color:var(--mut);font-size:.92rem;margin-bottom:.4rem}
+  .meta b{color:var(--ink)}
+  code{background:#1f2630;border:1px solid var(--border);border-radius:4px;padding:.1rem .35rem;font-size:.86em;
+       font-family:"SF Mono",ui-monospace,Menlo,monospace}
+  pre{background:#0b0f14;border:1px solid var(--border);border-radius:8px;padding:1rem;overflow:auto;font-size:.84rem;line-height:1.5}
+  pre code{background:none;border:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.9rem}
+  th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:#fff;border-bottom:2px solid var(--border)}
+  a{color:var(--blue)}
+  blockquote{border-left:3px solid var(--amber);background:#1c1a12;margin:1.2rem 0;padding:.6rem 1rem;border-radius:0 6px 6px 0;color:#e3d3a0}
+  .pill{display:inline-block;border-radius:999px;padding:.15rem .6rem;font-size:.78rem;font-weight:600}
+  .p1{background:#10331b;color:#7ee787;border:1px solid var(--green)}
+  .p2{background:#332912;color:#e3b341;border:1px solid var(--amber)}
+  ul{padding-left:1.3rem}
+  .tag{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+  hr{border:none;border-top:1px solid var(--border);margin:2.5rem 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Relationship Extraction — Design</h1>
+<p class="meta"><b>Date:</b> 2026-05-30 &nbsp;·&nbsp; <b>Status:</b> Approved (brainstorming) → ready for implementation plan</p>
+<p class="meta"><b>Scope:</b> Add inter-entity relationships to the bespoke document-graph builder so the Neo4j graph carries the connective tissue its schema declares.</p>
+
+<h2>1 · Problem</h2>
+<p>The pipeline extracts typed entities per paper — <code>Concept</code>, <code>Definition</code>, <code>Result</code> — and writes them to Neo4j. But today those entities are <b>islands</b>: <code>Definition</code> and <code>Result</code> nodes hang off their <code>Paper</code> via <code>STATES</code> and nothing else; <code>Concept</code> nodes are shared across papers but carry no relationships <em>among themselves</em> or <em>to</em> the definitions/results that use them.</p>
+<p><code>pipeline/schema.py</code> already <em>declares</em> the missing edges in <code>PATTERNS</code> (<code>Definition–DEFINES→Concept</code>, <code>Result–USES→Concept</code>, <code>Result–DEPENDS_ON→Result</code>, <code>Concept–RELATED_TO→Concept</code>), and the docstring claims extraction validates against them — but no asset writes them and extraction never produces the links in the first place.</p>
+<p><b>Consequence:</b> the multi-hop GraphRAG queries the graph exists <em>for</em> — "which theorems use concept X", "what does Theorem 3.1 depend on", "which concepts relate to BSDE" — cannot be answered.</p>
+<p class="tag">Why bespoke</p>
+<p>The pipeline moved off neo4j-graphrag's <code>SimpleKGPipeline</code> for better entity-identity discipline (content-hash ids, conservative cross-paper concept resolution, idempotent MERGEs, citation backfill). That trade inadvertently dropped relationship extraction. This work restores it on the stronger entity foundation.</p>
+
+<h2>2 · Locked decisions</h2>
+<ul>
+  <li><b>Target schema = academic / alethograph</b> (<code>schema.py</code>): Paper, Author, Concept, Definition, Result, Summary, Chunk, Document (+ deferred Book, Topic, Researcher, Idea). The <code>spec/01</code>+<code>spec/03</code> bank-quant-domain schema is an <b>earlier, abandoned design</b>, not the target (though its prompt prototyped the hybrid pattern adopted here).</li>
+  <li><b>Topic linking &amp; Idea construction are downstream</b>, out of this pipeline. The pipeline leaves the seam: canonical Concept nodes, reachable concept↔concept structure, accessible embeddings. Topic nodes are never written during ingestion.</li>
+  <li><b>Relationship model = hybrid</b>: small typed predicate + free-text <code>description</code> + <code>confidence</code> (validated by prior art, §6).</li>
+  <li><b>Purpose = multi-hop GraphRAG retrieval</b> (+ feeding the downstream Idea skill).</li>
+</ul>
+
+<h2>3 · Scope &amp; phasing</h2>
+<p>Two phases. <b>Both committed</b>; Phase 2 is deferred for risk-sequencing, not optional.</p>
+<h3><span class="pill p1">Phase 1 — build now</span> within-paper edges</h3>
+<table>
+  <tr><th>Edge</th><th>Endpoints</th><th>Risk</th></tr>
+  <tr><td><code>Definition –DEFINES→ Concept</code></td><td>paper-local Definition → canonical Concept</td><td>low</td></tr>
+  <tr><td><code>Result –USES→ Concept</code></td><td>paper-local Result → canonical Concept</td><td>low</td></tr>
+  <tr><td><code>Result –DEPENDS_ON→ Result</code></td><td>both paper-local Results</td><td>low</td></tr>
+</table>
+<p>Lower risk: each edge has ≥1 paper-local endpoint and needs <b>no cross-paper edge merge</b>.</p>
+<h3><span class="pill p2">Phase 2 — committed, next</span> concept ↔ concept hybrid edges</h3>
+<p>Typed predicate (<code>SPECIALIZES</code>, <code>RELATED_TO</code>, <code>COMPARES_WITH</code>, <code>OTHER</code>) + <code>description</code> + <code>confidence</code> + provenance (<code>support_count</code>, <code>source_paper_ids</code>). Higher risk: both endpoints canonical → recurs across papers → idempotent cross-paper merge + keep-both-on-conflict. Full sketch in §5. The extraction-schema change is designed once to cover both phases.</p>
+
+<h2>4 · Phase 1 design</h2>
+<h3>4.1 Core idea</h3>
+<p>The LLM sees only text, never our content-hash ids. So extraction emits links <b>by name</b>; <code>graph_write</code> — the single authority on identity — translates names to canonical concepts / result-ids and writes the edges. Unresolvable references are dropped, never invented (<b>faithfulness gate</b>).</p>
+<pre><code>extracted_graph (LLM)            resolved_entities          graph_write
+  definitions[i].defines ──┐      surface→canonical   ──┐    build maps:
+  results[j].uses          │  →   (concept names)       │ →   surface→canonical
+  results[j].depends_on  ──┘                            │     result-name→result_id
+                                                         │    3 new MERGE passes
+                                                         │    unmatched name → skip+count</code></pre>
+
+<h3>4.2 Extraction schema + prompt &nbsp;<span class="tag">extraction.py + extraction_anthropic.py</span></h3>
+<ul>
+  <li><code>definitions[].defines : list[str]</code> — concept names this definition defines (usually one).</li>
+  <li><code>results[].uses : list[str]</code> — concept names this result invokes.</li>
+  <li><code>results[].depends_on : list[str]</code> — result names this result depends on (e.g. <code>["Lemma 2.4"]</code>).</li>
+</ul>
+<p>Prompt gains: <em>"For each definition, list which extracted concepts it defines. For each result, list which extracted concepts it uses and which other results (by name) it depends on. Reference ONLY entities you already listed; if unsure, omit."</em> — the faithfulness gate.</p>
+
+<h3>4.3 Dataclasses + dedup &nbsp;<span class="tag">extraction.py</span></h3>
+<ul>
+  <li><code>Definition</code> gains <code>defines: list[str]</code>; <code>Result</code> gains <code>uses</code> and <code>depends_on</code> (default <code>[]</code>).</li>
+  <li><code>parse_extraction</code> reads new fields (default <code>[]</code>).</li>
+  <li><code>merge_results</code> <b>unions</b> link lists when deduping an entity seen in overlapping chunks. Dedup keys unchanged.</li>
+</ul>
+
+<h3>4.4 resolved_entities change</h3>
+<p>Emit the surface name alongside the canonical so <code>graph_write</code> can map references:</p>
+<pre><code>resolved.append({
+    "surface": c["name"],   # NEW: original extracted name, for link resolution
+    "name": canonical, "kind": c["kind"], "action": action.value, "embedding": v,
+})</code></pre>
+
+<h3>4.5 graph_write — maps + three MERGE passes</h3>
+<pre><code>surface_to_canon  = {c["surface"]: c["name"] for c in concepts}
+name_to_result_id = {r["name"]: r["id"] for r in rrows if r["name"]}</code></pre>
+<pre><code>-- DEFINES: paper-local Definition → canonical Concept
+MATCH (d:Definition {id:$def_id}), (c:Concept {name:$canon}) MERGE (d)-[:DEFINES]->(c)
+-- USES: paper-local Result → canonical Concept
+MATCH (r:Result {id:$res_id}), (c:Concept {name:$canon}) MERGE (r)-[:USES]->(c)
+-- DEPENDS_ON: Result → Result (both paper-local)
+MATCH (r1:Result {id:$res_id}), (r2:Result {id:$dep_id}) MERGE (r1)-[:DEPENDS_ON]->(r2)</code></pre>
+<p>Names that don't resolve (a concept/result the LLM didn't actually list) are <b>skipped and counted</b> under a <code>skipped_refs</code> metric — surfaced, never fabricated.</p>
+
+<h3>4.6 Idempotency</h3>
+<p>Free: endpoints have stable ids (content-hash for Def/Result, canonical name for Concept) and every edge is a <code>MERGE</code>. Every Phase 1 endpoint is paper-local or already-canonical → <b>no cross-paper edge merge</b> needed.</p>
+
+<h3>4.7 Schema changes</h3>
+<p><b>None.</b> <code>DEFINES</code>/<code>USES</code>/<code>DEPENDS_ON</code> are already in <code>RELATIONSHIP_TYPES</code> and all three patterns already in <code>PATTERNS</code>. Phase 1 simply populates edges the schema promised.</p>
+
+<h3>4.8 Tests</h3>
+<ul>
+  <li><b>Unit</b>: <code>parse_extraction</code> reads/defaults new fields; <code>merge_results</code> unions link lists; <code>graph_write</code> map-building + unmatched-ref skip/count + edge rows.</li>
+  <li><b>Integration</b>: extend <code>test_one_paper_end_to_end</code> to assert the new edges + endpoints; extend idempotency test to assert edge counts stable on re-run.</li>
+</ul>
+
+<h2>5 · Phase 2 design sketch <span class="pill p2">committed roadmap</span></h2>
+<blockquote>This phase is planned and will be built. Recorded here so picking it up is "execute the plan", not "redesign". Risk-sequenced after Phase 1.</blockquote>
+<h3>5.1 Extraction</h3>
+<pre><code># concept_relations[]: {src, dst, predicate, description, confidence}
+#   predicate ∈ {SPECIALIZES, RELATED_TO, COMPARES_WITH, OTHER}</code></pre>
+<p>EDC-style: extract freely, canonicalize to the vocabulary; <code>OTHER</code> retains the raw predicate. <code>USES</code> is excluded from the concept-concept set (stays the Result→Concept edge). Keep all extractions above a low confidence floor — confidence is a ranking signal, not a hard gate.</p>
+<h3>5.2 Schema additions (Phase 2 only)</h3>
+<ul>
+  <li><code>RELATIONSHIP_TYPES</code>: add <code>SPECIALIZES</code>, <code>COMPARES_WITH</code>.</li>
+  <li><code>PATTERNS</code>: add <code>(Concept, SPECIALIZES, Concept)</code>, <code>(Concept, COMPARES_WITH, Concept)</code> (<code>RELATED_TO</code> already present).</li>
+</ul>
+<h3>5.3 Edge model</h3>
+<pre><code>(c1:Concept)-[:SPECIALIZES {
+    description: "...",        // the specific sense
+    confidence: 0.9,          // true per-extraction confidence — NOT frequency
+    support_count: 3,         // number of papers asserting this edge
+    source_paper_ids: [...]   // provenance, dedup-appended
+}]->(c2:Concept)</code></pre>
+<h3>5.4 Cross-paper merge mechanics</h3>
+<ul>
+  <li><b>Edge identity</b> = <code>(src_canonical, predicate, dst_canonical)</code>; volatile fields in <code>ON CREATE</code>/<code>ON MATCH</code>, never the MERGE pattern → idempotent under Dagster retries.</li>
+  <li>Both endpoints resolve to <b>canonical</b> concepts → connects concepts across papers.</li>
+  <li><b>Keep-both on conflict</b>: a different predicate between the same pair is a distinct edge; attribute via <code>source_paper_ids</code>.</li>
+  <li><b>Symmetric <code>RELATED_TO</code></b>: pre-sort the endpoint pair so (A,B)/(B,A) collapse; query undirected.</li>
+  <li>Aggregate on match: dedupe-append <code>source_paper_ids</code>, increment <code>support_count</code> only for a new paper, keep <code>confidence</code> as max — distinct from count.</li>
+  <li><b>Provenance</b>: arrays now; reify as <code>:Evidence</code>/<code>MENTIONED_IN</code> only if they grow large (deferred).</li>
+</ul>
+
+<h2>6 · Research grounding</h2>
+<p>Four parallel agents surveyed prior art (2026-05-30). Hybrid is established best practice, not novel:</p>
+<ul>
+  <li><b>EDC — Extract, Define, Canonicalize</b> (EMNLP 2024): the canonical hybrid — extract freely, snap to a typed predicate when it fits, retain free-text otherwise. <a href="https://arxiv.org/abs/2404.03868">arxiv.org/abs/2404.03868</a></li>
+  <li><b>SciERC</b> (Luan et al., 2018): proven small scientific vocabulary — USED-FOR, HYPONYM-OF (≈ SPECIALIZES), PART-OF, COMPARE (≈ COMPARES_WITH), FEATURE-OF, EVALUATE-FOR; hierarchy kept distinct from association. <a href="https://aclanthology.org/D18-1360/">aclanthology.org/D18-1360</a></li>
+  <li><b>Neo4j SimpleKGPipeline</b>: typed predicates via <code>patterns</code> with relationship <b>properties</b> (description, confidence); resolve-then-MERGE-on-canonical-id keeps endpoints canonical. <a href="https://neo4j.com/docs/neo4j-graphrag-python/current/user_guide_kg_builder.html">docs</a></li>
+  <li><b>MS GraphRAG / LightRAG</b>: merge mechanics — key on endpoints(+predicate), volatile fields out of MERGE, accumulate provenance, summarize descriptions when they pile up, symmetric via sorted pairs. <a href="https://microsoft.github.io/graphrag/index/default_dataflow/">GraphRAG</a> · <a href="https://neo4j.com/blog/developer/under-the-covers-with-lightrag-extraction/">LightRAG</a></li>
+</ul>
+<p class="tag">Refinements over a naive port of spec/03</p>
+<ol>
+  <li><b>Keep <code>confidence</code> separate from frequency</b> — store <code>support_count</code> distinctly from a true per-extraction confidence.</li>
+  <li><b>Keep-both-with-attribution</b> on cross-paper conflicts rather than overwriting.</li>
+  <li><b>Faithfulness gate</b>: reference only listed entities / allow abstention to suppress LLM over-prediction (<a href="https://arxiv.org/pdf/2508.14391">Hallucination-Resistant RE, 2025</a>).</li>
+</ol>
+
+<h2>7 · Optional follow-ups (not Phase 1 scope)</h2>
+<ul>
+  <li><b>Enforce <code>PATTERNS</code> at write time</b>: <code>graph_write</code> hard-codes edges and never consults <code>PATTERNS</code>; a one-line guard asserting each written edge is in <code>PATTERNS</code> would make the contract real.</li>
+  <li><b>Tighten <code>schema.py</code> docstring</b> to state the vocabulary is consumed by tests + bootstrap and (until the guard exists) is not a runtime-enforced extraction gate.</li>
+</ul>
+
+<h2>8 · Files touched (Phase 1)</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>pipeline/extraction.py</code></td><td>schema + prompt link fields; dataclasses; <code>parse_extraction</code>; <code>merge_results</code> union</td></tr>
+  <tr><td><code>pipeline/extraction_anthropic.py</code></td><td>mirror schema/prompt; verify link fields flow through</td></tr>
+  <tr><td><code>pipeline/assets/resolved_entities.py</code></td><td>emit <code>surface</code> alongside canonical <code>name</code></td></tr>
+  <tr><td><code>pipeline/assets/graph_write.py</code></td><td>build maps; 3 new MERGE passes; skipped-refs metric</td></tr>
+  <tr><td><code>tests/test_extraction.py</code></td><td>new-field parse + merge-union tests</td></tr>
+  <tr><td><code>tests/test_graph_write.py</code></td><td>map-building + unmatched-ref skip + edge-row tests</td></tr>
+  <tr><td><code>tests/integration/test_end_to_end.py</code></td><td>assert new edges + idempotency</td></tr>
+</table>
+<p><code>pipeline/schema.py</code> is unchanged in Phase 1 (edges already declared).</p>
+
+</div>
+</body>
+</html>
