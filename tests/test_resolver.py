@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pipeline.resolver import (
+from pipeline.resolution.resolver import (
     EMBEDDING_DIM,
     Decision,
     Verdict,

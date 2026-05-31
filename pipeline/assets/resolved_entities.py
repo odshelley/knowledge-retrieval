@@ -1,4 +1,4 @@
-"""resolved_entities: DECIDE ONLY. Runs the canonicalization+cosine+LLM ladder (pipeline.resolver.
+"""resolved_entities: DECIDE ONLY. Runs the canonicalization+cosine+LLM ladder (pipeline.resolution.resolver.
 resolve_concepts), records decision rows, and emits resolved concepts + alias registrations for
 graph_write. Writes no Neo4j, no embeddings, no alias_map (graph_write owns those — spec rev 2 §7)."""
 from __future__ import annotations
@@ -9,7 +9,7 @@ from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.embedding import embed_texts
 from pipeline.runtime.partitions import documents_partitions_def
-from pipeline.resolver import (
+from pipeline.resolution.resolver import (
     adjudicate,
     lookup_by_key,
     nearest,
