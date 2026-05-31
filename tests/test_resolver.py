@@ -162,3 +162,11 @@ def test_record_decision_writes_note():
     record_decision(cur, "BM", "Bridge Matching", "Concept", 0.84, "merge_llm", "run1", note="same")
     params = cur.execute.call_args[0][1]
     assert "same" in params
+
+
+def test_effective_adjudication_model_falls_back_to_extraction():
+    from pipeline.resources import OpenAILLMResource
+    r = OpenAILLMResource(api_key="x")
+    assert r.effective_adjudication_model == r.extraction_model
+    r2 = OpenAILLMResource(api_key="x", adjudication_model="gpt-5")
+    assert r2.effective_adjudication_model == "gpt-5"
