@@ -1,3 +1,5 @@
+import pytest
+
 from pipeline.extraction import (
     ExtractionResult, parse_extraction, merge_results,
     Concept, Definition, Result,
@@ -87,3 +89,53 @@ def test_merge_results_unions_link_lists_across_overlapping_chunks():
     assert len(merged.results) == 1
     assert merged.results[0].uses == ["BSDE", "Feynman-Kac"]
     assert merged.results[0].depends_on == ["Lemma 2.4"]              # deduped, not doubled
+
+
+@pytest.mark.parametrize("name", [
+    "W_t", "X_t", "Π*", "ũ(x,t)", "p_σ(x̃)", r"$\Pi^*$", "∇ρ",
+    "x=y", "a+b", "p/q", "x<y", "f>g",   # ASCII operators are math signals too
+])
+def test_is_notation_only_drops_bare_notation(name):
+    from pipeline.extraction import _is_notation_only
+    assert _is_notation_only(name) is True
+
+
+@pytest.mark.parametrize("name", [
+    "Brownian motion", "Schrödinger bridge", "Markovian projection",
+    "OT", "SB", "ELBO", "SDE", "BSDE", "WWR",
+    "σ-algebra", "L² space", "k-NN", "GPT-4", "2-Wasserstein distance",
+])
+def test_is_notation_only_keeps_real_concepts(name):
+    from pipeline.extraction import _is_notation_only
+    assert _is_notation_only(name) is False
+
+
+def test_merge_results_drops_notation_only_concepts_keeps_real():
+    part = ExtractionResult(concepts=[
+        Concept(name="Brownian motion", kind="concept"),
+        Concept(name="W_t", kind="concept"),              # notation -> dropped
+        Concept(name="brownian motion", kind="concept"),  # case dup -> deduped
+        Concept(name="Π*", kind="concept"),               # notation -> dropped
+        Concept(name="OT", kind="concept"),               # acronym -> kept
+    ])
+    merged = merge_results([part])
+    names = [c.name for c in merged.concepts]
+    assert names == ["Brownian motion", "OT"]
+
+
+def test_statement_field_descriptions_require_latex():
+    for model in (Definition, Result):
+        desc = model.model_fields["statement"].description
+        assert "$" in desc
+        assert "LaTeX" in desc
+
+
+def test_concept_name_description_forbids_bare_notation():
+    desc = Concept.model_fields["name"].description
+    assert "notation" in desc.lower()
+
+
+def test_system_prompt_states_both_rules():
+    from pipeline.extraction import SYSTEM_PROMPT
+    assert "LaTeX" in SYSTEM_PROMPT
+    assert "Brownian motion" in SYSTEM_PROMPT  # the concept-vs-notation few-shot

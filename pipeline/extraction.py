@@ -17,8 +17,11 @@ from pipeline.text_norm import normalize_statement
 
 class Concept(BaseModel):
     name: str = Field(
-        description="Short, self-contained name of the idea/object/framework or "
-        "algorithm/technique, as it would head a glossary entry — no surrounding prose."
+        description="The name of a *named* idea, object, framework, or algorithm/technique, as it "
+        "would head a glossary entry — no surrounding prose. It must be a real concept name, never "
+        "bare mathematical notation: a symbol like 'W_t', 'Π*', or 'ũ(x,t)' is NOT a concept, it is "
+        "notation that denotes one. If the named concept is present in the text, use its name (e.g. "
+        "'Brownian motion', not 'W_t'); if a symbol has no named concept behind it, emit no concept for it."
     )
     kind: Literal["concept", "method"] = Field(
         default="concept",
@@ -33,10 +36,15 @@ class Concept(BaseModel):
 
 
 class Definition(BaseModel):
-    term: str = Field(description="The exact term being defined.")
+    term: str = Field(
+        description="The exact term being defined. If it contains mathematical notation, render it "
+        "as LaTeX in $...$."
+    )
     statement: str = Field(
-        description="The full formal definition as stated in the text, "
-        "preserving LaTeX / math notation verbatim."
+        description="The full formal definition as stated in the text. Render ALL mathematical "
+        "notation as LaTeX: inline math in $...$, display equations in $$...$$. Convert any Unicode "
+        "or plaintext math to LaTeX (e.g. σ -> \\sigma, ∇ -> \\nabla, sub/superscripts and fractions); "  # noqa: RUF001
+        "never leave raw Unicode math."
     )
     defines: list[str] = Field(
         default_factory=list,
@@ -60,8 +68,9 @@ class Result(BaseModel):
         description="The type of formal result."
     )
     statement: str = Field(
-        description="The full statement of the result, preserving LaTeX / math notation "
-        "verbatim. Exclude any proof."
+        description="The full statement of the result, excluding any proof. Render ALL mathematical "
+        "notation as LaTeX: inline math in $...$, display equations in $$...$$. Convert any Unicode or "
+        "plaintext math to LaTeX; never leave raw Unicode math."
     )
     uses: list[str] = Field(
         default_factory=list,
@@ -104,7 +113,16 @@ sciences and engineering broadly). From the chunk, populate the concepts, defini
 results of the response schema, following each field's description. Emit nothing not asserted \
 by the text. When filling a definition's `defines`, a result's `uses`, or a result's \
 `depends_on`, reference ONLY names you have already produced in this same response; if \
-unsure, leave the list empty."""
+unsure, leave the list empty.
+
+Two rules govern every field:
+1. CONCEPTS are named ideas/objects/frameworks/algorithms (glossary headwords). Bare mathematical \
+notation is never a concept: from "Let W_t be a standard Brownian motion", the concept is \
+"Brownian motion", NOT "W_t". If a symbol has no named concept behind it, emit no concept for it.
+2. Render ALL mathematical notation as LaTeX — inline in $...$, display in $$...$$ — actively \
+converting Unicode or plaintext math. For example, source text "ũ(x,t) = (σ²/2) ∇ ln ρ̃(x,t)" must \
+be written as $\\tilde u(x,t) = \\tfrac{\\sigma^2}{2}\\,\\nabla \\ln \\tilde\\rho(x,t)$. Never leave \
+raw Unicode math in any field."""  # noqa: RUF001
 
 
 def parse_extraction(payload: dict) -> ExtractionResult:
@@ -136,6 +154,43 @@ def _extend_unique(dst: list[str], src: list[str]) -> None:
             dst.append(item)
 
 
+# Structural math markup / operators that mark a string as notation. Includes ASCII operators
+# (/ + = < >) so 'x=y', 'a+b', 'p/q' are caught. Deliberately excludes hyphen and whitespace —
+# they appear in real names ('σ-algebra', 'k-NN', 'state-of-the-art').
+_MATH_SIGNAL_CHARS = set("_^*\\(){}|/+=<>")
+
+
+def _has_three_letter_run(s: str) -> bool:
+    """True if s has a run of >=3 consecutive Unicode-alphabetic letters (a word-like token)."""
+    run = 0
+    for ch in s:
+        if ch.isalpha():
+            run += 1
+            if run >= 3:
+                return True
+        else:
+            run = 0
+    return False
+
+
+def _has_math_signal(s: str) -> bool:
+    """True if s contains math markup: structural chars, a digit, or a non-letter symbol.
+    Greek/accented LETTERS (σ, Π, ũ) are letters, not signals; hyphen and whitespace are not signals."""
+    for ch in s:
+        if ch in _MATH_SIGNAL_CHARS or ch.isdigit():
+            return True
+        if not ch.isascii() and not ch.isalpha() and not ch.isspace():
+            return True
+    return False
+
+
+def _is_notation_only(name: str) -> bool:
+    """Conservative backstop: a concept name is notation-only (and should not be a Concept) iff it
+    carries a math signal AND has no >=3-letter word. Errs toward keeping (real concept > stray symbol)."""
+    s = name.replace("$", "")
+    return _has_math_signal(s) and not _has_three_letter_run(s)
+
+
 def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     # Chunks overlap, so the same concept/definition/result is extracted from adjacent chunks.
     # Dedup all three by the same normalized key graph_write uses for ids, so overlap doesn't
@@ -144,6 +199,8 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     seen_c, concepts = set(), []
     for p in parts:
         for c in p.concepts:
+            if _is_notation_only(c.name):
+                continue  # bare notation is never a concept (backstop; primary fix is the prompt)
             if c.name.lower() not in seen_c:
                 seen_c.add(c.name.lower())
                 concepts.append(c)
