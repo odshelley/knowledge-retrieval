@@ -8,7 +8,6 @@ from pipeline.resolver import (
     Verdict,
     adjudicate,
     decide,
-    lookup_alias,
     lookup_by_key,
     nearest,
     record_decision,
@@ -79,14 +78,6 @@ def test_record_decision_executes_insert():
     cur = MagicMock()
     record_decision(cur, "cand", None, "Concept", 0.4, "create", "run1")
     assert cur.execute.called
-
-
-def test_lookup_alias_hit_and_miss():
-    cur = MagicMock()
-    cur.fetchone.return_value = ("Canonical Name",)
-    assert lookup_alias(cur, "Concept", "alias") == "Canonical Name"
-    cur.fetchone.return_value = None
-    assert lookup_alias(cur, "Concept", "alias") is None
 
 
 # --- LLM adjudicator tests (mock OpenAI client) ---

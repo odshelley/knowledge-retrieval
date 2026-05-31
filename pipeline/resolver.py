@@ -63,16 +63,6 @@ def adjudicate(client, model: str, candidate: str, canonical: str,
     return resp.choices[0].message.parsed
 
 
-def lookup_alias(cur, label: str, name: str) -> str | None:
-    """Return the canonical name an alias maps to, or None. Consulted before NN search (spec §7)."""
-    cur.execute(
-        "SELECT canonical FROM alias_map WHERE label = %s AND alias = %s",
-        (label, name),
-    )
-    row = cur.fetchone()
-    return row[0] if row else None
-
-
 def lookup_by_key(cur, label: str, key: str) -> tuple[str, str] | None:
     """Return (canonical, source) the canonical_key maps to in alias_map, or None.
     `alias` column stores canonical keys only (spec rev 2 §6)."""
