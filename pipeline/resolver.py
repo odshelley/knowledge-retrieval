@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import enum
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel
+
+from pipeline.canonicalize import canonical_key
 
 EMBEDDING_DIM = 1536
 
@@ -70,6 +73,40 @@ def lookup_alias(cur, label: str, name: str) -> str | None:
     return row[0] if row else None
 
 
+def lookup_by_key(cur, label: str, key: str) -> tuple[str, str] | None:
+    """Return (canonical, source) the canonical_key maps to in alias_map, or None.
+    `alias` column stores canonical keys only (spec rev 2 §6)."""
+    cur.execute(
+        "SELECT canonical, source FROM alias_map WHERE label = %s AND alias = %s",
+        (label, key),
+    )
+    row = cur.fetchone()
+    return (row[0], row[1]) if row else None
+
+
+def similarity_to(cur, label: str, canonical: str, embedding: list[float]) -> float | None:
+    """Cosine similarity of `embedding` to a specific canonical's stored embedding, or None if absent.
+    Used by the alias cosine-guard (spec §3 step 1)."""
+    if len(embedding) != EMBEDDING_DIM:
+        raise ValueError(f"embedding has {len(embedding)} dims, expected {EMBEDDING_DIM}")
+    cur.execute(
+        "SELECT 1 - (embedding <=> %s::vector) FROM entity_embeddings "
+        "WHERE label = %s AND canonical = %s",
+        (embedding, label, canonical),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def upsert_alias(cur, label: str, key: str, canonical: str, source: str) -> None:
+    """Register canonical_key -> canonical (first-seen wins). Sole writer is graph_write (spec §7)."""
+    cur.execute(
+        "INSERT INTO alias_map (alias, label, canonical, source) VALUES (%s,%s,%s,%s) "
+        "ON CONFLICT (alias, label) DO NOTHING",
+        (key, label, canonical, source),
+    )
+
+
 def nearest(cur, label: str, embedding: list[float]) -> tuple[str, float] | None:
     """Return (canonical_name, cosine_similarity) of the closest same-label entity, or None."""
     if len(embedding) != EMBEDDING_DIM:
@@ -87,12 +124,12 @@ def nearest(cur, label: str, embedding: list[float]) -> tuple[str, float] | None
 
 
 def record_decision(cur, candidate: str, matched_to: str | None, label: str,
-                    score: float, action: str, run_id: str) -> None:
+                    score: float, action: str, run_id: str, note: str | None = None) -> None:
     cur.execute(
         "INSERT INTO resolution_decisions "
-        "(candidate, matched_to, label, score, action, run_id) "
-        "VALUES (%s,%s,%s,%s,%s,%s)",
-        (candidate, matched_to, label, score, action, run_id),
+        "(candidate, matched_to, label, score, action, run_id, note) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (candidate, matched_to, label, score, action, run_id, note),
     )
 
 

@@ -9,8 +9,11 @@ from pipeline.resolver import (
     adjudicate,
     decide,
     lookup_alias,
+    lookup_by_key,
     nearest,
     record_decision,
+    similarity_to,
+    upsert_alias,
     upsert_embedding,
 )
 
@@ -122,3 +125,40 @@ def test_verdict_rejects_bad_decision():
         Verdict(decision="MAYBE", reason="x")
 
 
+
+
+# --- new DB helpers (Task 3) ---
+
+
+def test_lookup_by_key_returns_canonical_and_source():
+    cur = MagicMock()
+    cur.fetchone.return_value = ("Bridge Matching", "rule")
+    assert lookup_by_key(cur, "Concept", "bridge matching") == ("Bridge Matching", "rule")
+
+
+def test_lookup_by_key_miss_returns_none():
+    cur = MagicMock()
+    cur.fetchone.return_value = None
+    assert lookup_by_key(cur, "Concept", "x") is None
+
+
+def test_similarity_to_returns_float_or_none():
+    cur = MagicMock()
+    cur.fetchone.return_value = (0.84,)
+    assert similarity_to(cur, "Concept", "Bridge Matching", [0.0] * 1536) == 0.84
+    cur.fetchone.return_value = None
+    assert similarity_to(cur, "Concept", "X", [0.0] * 1536) is None
+
+
+def test_upsert_alias_uses_on_conflict_do_nothing():
+    cur = MagicMock()
+    upsert_alias(cur, "Concept", "bridge matching", "Bridge Matching", "rule")
+    sql = cur.execute.call_args[0][0]
+    assert "ON CONFLICT" in sql and "DO NOTHING" in sql
+
+
+def test_record_decision_writes_note():
+    cur = MagicMock()
+    record_decision(cur, "BM", "Bridge Matching", "Concept", 0.84, "merge_llm", "run1", note="same")
+    params = cur.execute.call_args[0][1]
+    assert "same" in params
