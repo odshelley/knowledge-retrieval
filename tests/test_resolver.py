@@ -9,11 +9,8 @@ from pipeline.resolver import (
     adjudicate,
     decide,
     lookup_alias,
-    lookup_by_key,
     nearest,
     record_decision,
-    similarity_to,
-    upsert_alias,
     upsert_embedding,
 )
 
@@ -123,3 +120,5 @@ def test_verdict_rejects_bad_decision():
     import pydantic
     with pytest.raises(pydantic.ValidationError):
         Verdict(decision="MAYBE", reason="x")
+
+
