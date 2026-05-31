@@ -120,3 +120,21 @@ def test_merge_results_drops_notation_only_concepts_keeps_real():
     merged = merge_results([part])
     names = [c.name for c in merged.concepts]
     assert names == ["Brownian motion", "OT"]
+
+
+def test_statement_field_descriptions_require_latex():
+    for model in (Definition, Result):
+        desc = model.model_fields["statement"].description
+        assert "$" in desc
+        assert "LaTeX" in desc
+
+
+def test_concept_name_description_forbids_bare_notation():
+    desc = Concept.model_fields["name"].description
+    assert "notation" in desc.lower()
+
+
+def test_system_prompt_states_both_rules():
+    from pipeline.extraction import SYSTEM_PROMPT
+    assert "LaTeX" in SYSTEM_PROMPT
+    assert "Brownian motion" in SYSTEM_PROMPT  # the concept-vs-notation few-shot
