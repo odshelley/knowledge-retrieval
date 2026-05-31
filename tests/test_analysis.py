@@ -1,4 +1,4 @@
-from pipeline.analysis import ANALYSIS_FIELDS, PaperAnalysis, validate_analysis
+from pipeline.analysis.analysis import ANALYSIS_FIELDS, PaperAnalysis, validate_analysis
 
 
 def test_analysis_fields_match_research_skill_template():
