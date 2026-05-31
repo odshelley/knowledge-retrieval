@@ -144,3 +144,96 @@ def upsert_embedding(cur, canonical: str, label: str, embedding: list[float]) ->
         "ON CONFLICT (canonical, label) DO UPDATE SET embedding = EXCLUDED.embedding",
         (canonical, label, embedding),
     )
+
+
+@dataclass
+class ConceptResolution:
+    surface: str
+    canonical: str
+    kind: str
+    action: str
+    score: float
+    matched_to: str | None
+    note: str | None
+    embedding: list[float]
+
+
+@dataclass
+class AliasRegistration:
+    key: str
+    canonical: str
+    source: str  # "rule" | "cosine" | "llm"
+
+
+_VALID_DECISIONS = {"SAME", "DIFFERENT", "UNSURE"}
+
+
+def _resolve_one(name, key, vec, *, lookup_by_key, nearest, similarity_to, adjudicate, high, low):
+    """Resolve a single representative. Returns (action, canonical, score, matched_to, note, alias|None)."""
+    note = None
+    hit = lookup_by_key("Concept", key)
+    if hit is not None:
+        canonical, source = hit
+        if source == "human":
+            return "merge_alias", canonical, 1.0, canonical, None, None
+        sim = similarity_to("Concept", canonical, vec)
+        if sim is not None and sim >= low:
+            return "merge_alias", canonical, sim, canonical, None, None
+        note = f"alias key collision: key={key!r} -> {canonical!r} sim={sim}"
+
+    nn = nearest("Concept", vec)
+    if nn is None:
+        return "create", name, 0.0, None, note, AliasRegistration(key, name, "rule")
+    matched, score = nn
+    if score >= high:
+        reg = AliasRegistration(key, matched, "cosine") if canonical_key(matched) != key else None
+        return "merge", matched, score, matched, note, reg
+    if score < low:
+        return "create", name, score, None, note, AliasRegistration(key, name, "rule")
+
+    # ambiguous band -> guarded LLM 3-way
+    try:
+        v = adjudicate(name, matched)
+        decision = v.decision if (v is not None and v.decision in _VALID_DECISIONS) else "UNSURE"
+        reason = v.reason if v is not None else "no verdict"
+    except Exception as e:  # noqa: BLE001 - any failure becomes UNSURE per spec
+        decision, reason = "UNSURE", f"adjudicate error: {e}"
+    note = "; ".join(p for p in (note, reason) if p)
+    if decision == "SAME":
+        return "merge_llm", matched, score, matched, note, AliasRegistration(key, matched, "llm")
+    if decision == "DIFFERENT":
+        return "create_llm", name, score, None, note, AliasRegistration(key, name, "llm")
+    return "create_flagged", name, score, None, note, None  # UNSURE: never cache
+
+
+def resolve_concepts(concepts, embeddings, *, lookup_by_key, nearest, similarity_to, adjudicate,
+                     high: float = 0.90, low: float = 0.60):
+    """Pure per-partition resolution ladder. `concepts` is a list of {name,kind}; `embeddings`
+    aligns 1:1. Returns (list[ConceptResolution] one-per-surface, list[AliasRegistration])."""
+    assert len(embeddings) == len(concepts), "embeddings must align 1:1 with concepts"
+    groups: dict[str, list[int]] = {}
+    order: list[str] = []
+    for i, c in enumerate(concepts):
+        k = canonical_key(c["name"])
+        if k not in groups:
+            groups[k] = []
+            order.append(k)
+        groups[k].append(i)
+
+    res: list = [None] * len(concepts)
+    aliases: list = []
+    for k in order:
+        idxs = groups[k]
+        rep = idxs[0]
+        action, canonical, score, matched_to, note, reg = _resolve_one(
+            concepts[rep]["name"], k, embeddings[rep],
+            lookup_by_key=lookup_by_key, nearest=nearest, similarity_to=similarity_to,
+            adjudicate=adjudicate, high=high, low=low)
+        res[rep] = ConceptResolution(concepts[rep]["name"], canonical, concepts[rep]["kind"],
+                                     action, score, matched_to, note, embeddings[rep])
+        if reg is not None:
+            aliases.append(reg)
+        for j in idxs[1:]:
+            res[j] = ConceptResolution(concepts[j]["name"], canonical, concepts[j]["kind"],
+                                       "merge_local", 1.0, canonical, None, embeddings[j])
+    return res, aliases
