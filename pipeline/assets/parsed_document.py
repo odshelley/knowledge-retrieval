@@ -6,7 +6,7 @@ from pathlib import Path
 
 from dagster import MaterializeResult, MetadataValue, asset
 
-from pipeline.parsing import parse_pdf
+from pipeline.ingest.parsing import parse_pdf
 from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.runtime.storage import PARSED_BUCKET, RAW_BUCKET
 

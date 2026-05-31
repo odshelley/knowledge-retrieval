@@ -4,7 +4,7 @@ from __future__ import annotations
 from dagster import RunRequest, ScheduleEvaluationContext, schedule
 
 from pipeline.runtime.partitions import DOCUMENTS_PARTITION
-from pipeline.source import file_partition_key, list_pdf_files, source_dir
+from pipeline.ingest.source import file_partition_key, list_pdf_files, source_dir
 
 
 @schedule(cron_schedule="0 6 * * *", job_name="ingest_document", execution_timezone="Europe/London")

@@ -6,7 +6,7 @@ from dagster import build_asset_context
 
 import pipeline.assets.parsed_document as pd_mod
 from pipeline.assets.parsed_document import QuarantineError, parsed_document
-from pipeline.parsing import ParseResult
+from pipeline.ingest.parsing import ParseResult
 
 
 def _minio_with_pdf_bytes(data: bytes) -> MagicMock:

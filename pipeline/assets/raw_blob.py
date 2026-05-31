@@ -5,7 +5,7 @@ import botocore.exceptions
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.runtime.partitions import documents_partitions_def, hash_bytes
-from pipeline.source import list_pdf_files, source_dir
+from pipeline.ingest.source import list_pdf_files, source_dir
 from pipeline.runtime.storage import RAW_BUCKET
 
 
