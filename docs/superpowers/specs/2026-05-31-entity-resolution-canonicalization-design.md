@@ -156,8 +156,7 @@ def adjudicate(client, model, candidate: str, canonical: str, timeout=...) -> Ve
 
 **`alias_map` is a single key-space (D3).** Its `alias` column now stores **canonical keys only** (the
 output of §4), never raw surface forms. The legacy raw-name lookup `lookup_alias` is **deleted** and
-replaced by `lookup_by_key`. Phase-2 human review will also write keyed by canonical key. Add column
-`source text` ∈ `{rule, llm, human}`. (Existing columns: `alias`, `canonical`, `label`.) The §11 backfill
+replaced by `lookup_by_key`. Phase-2 human review will also write keyed by canonical key. Add column `source text` ∈ `{rule, cosine, llm, human}`. (Existing columns: `alias`, `canonical`, `label`.) The §11 backfill
 truncates `alias_map`, so no legacy raw-surface rows survive into the new scheme.
 
 **`resolution_decisions`**: add `note text` (nullable) — holds the LLM `reason` for `create_flagged`, the
@@ -176,7 +175,7 @@ window). Registration rules:
 
 | Action | New node? | Register alias? | source |
 |---|---|---|---|
-| `merge` (cosine ≥ HIGH) | no | yes, if candidate key ≠ canonical's key (caches the variant) | `rule` |
+| `merge` (cosine ≥ HIGH) | no | yes, if candidate key ≠ canonical's key (caches the variant) | `cosine` |
 | `merge_alias` | no | no (already present) | — |
 | `merge_llm` (LLM SAME) | no | **yes** (cacheable, but D1-guarded on future reads) | `llm` |
 | `create` (cosine < LOW / no NN) | yes | **yes** (first-seen registration) | `rule` |
@@ -200,7 +199,7 @@ the current `merge_adjudicated`/`create_adjudicated` strings means existing test
 strings must be updated (§10), not merely supplemented.**
 
 **Score / matched_to conventions.** `matched_to` = canonical for any merge action, else `NULL`. `score`
-is the cosine similarity used for the decision; `1.0` for `merge_alias`, `merge_local`; `0.0` for a
+is the cosine similarity used for the decision; `1.0` for a human-trusted `merge_alias` and for `merge_local` (the D1 cosine-guarded `merge_alias` records the guard similarity instead); `0.0` for a
 `create` with no NN; the real band score for `merge_llm`/`create_llm`/`create_flagged`.
 
 ## 7. Single-writer compliance

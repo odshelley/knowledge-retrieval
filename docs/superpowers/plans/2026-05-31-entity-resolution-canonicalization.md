@@ -169,7 +169,7 @@ git commit -m "feat(resolver): deterministic canonical_key normalizer for Tier-A
 
 - [ ] **Step 1: Update the failing tests in `tests/test_resolver.py`**
 
-Replace any test importing/using `SameConceptJudgment` with:
+First **edit the existing import block** at the top of `tests/test_resolver.py`: remove `SameConceptJudgment` and `lookup_alias` from the `from pipeline.resolver import (...)` line (both are deleted in Tasks 2-3). Then **delete** the now-obsolete tests `test_lookup_alias_hit_and_miss`, `test_adjudicate_returns_parsed_judgment`, and `test_adjudicate_passes_names_model_and_schema` (they use the removed symbols). Then add:
 
 ```python
 from pipeline.resolver import Verdict, adjudicate
@@ -259,7 +259,7 @@ def adjudicate(client, model: str, candidate: str, canonical: str,
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `uv run --extra dev pytest tests/test_resolver.py -q`
-Expected: PASS for the two new tests (other resolver tests may still fail until Task 3 — that is expected; proceed).
+Expected: PASS. IMPORTANT: until Task 7 rewrites `resolved_entities.py` (which still imports `lookup_alias`), the full package will not import — run ONLY `tests/test_resolver.py` and `tests/test_canonicalize.py` for now, not the whole suite.
 
 - [ ] **Step 5: Commit**
 
@@ -324,7 +324,7 @@ Expected: FAIL — `ImportError: cannot import name 'lookup_by_key'`.
 
 - [ ] **Step 3: Edit `pipeline/resolver.py`**
 
-Delete `lookup_alias` entirely. Add:
+Delete `lookup_alias` entirely (its test `test_lookup_alias_hit_and_miss` was removed in Task 2). Add:
 
 ```python
 def lookup_by_key(cur, label: str, key: str) -> tuple[str, str] | None:
@@ -545,7 +545,7 @@ def _resolve_one(name, key, vec, *, lookup_by_key, nearest, similarity_to, adjud
         return "create", name, 0.0, None, note, AliasRegistration(key, name, "rule")
     matched, score = nn
     if score >= high:
-        reg = AliasRegistration(key, matched, "rule") if canonical_key(matched) != key else None
+        reg = AliasRegistration(key, matched, "cosine") if canonical_key(matched) != key else None
         return "merge", matched, score, matched, note, reg
     if score < low:
         return "create", name, score, None, note, AliasRegistration(key, name, "rule")
@@ -867,8 +867,8 @@ git commit -m "feat(graph_write): sole writer of alias_map, co-located with Conc
 
 - [ ] **Step 1: Run the whole unit suite**
 
-Run: `docker compose exec -T dagster-daemon sh -lc 'cd /opt/code && uv run --extra dev pytest -q'`
-(or locally: `uv run --extra dev pytest -q`)
+Run: `uv run --extra dev pytest -q`
+(Run on the HOST: the Dagster container mounts only ./pipeline and ./scripts, not tests/.)
 Expected: all green. If any test still references the removed `lookup_alias`, `SameConceptJudgment`, or
 the old `merge_adjudicated`/`create_adjudicated` strings, update it to the new names and re-run.
 
@@ -901,8 +901,19 @@ git add -A && git commit -m "test: align suite with new resolver action vocabula
 - [ ] **Step 1: Scoped pre-clean in Neo4j (Aura) — Concept nodes + their edges only**
 
 Run a Cypher session (via the project's Neo4j helper or `cypher-shell`) with:
-```cypher
-MATCH (c:Concept) DETACH DELETE c;
+Run on the host (with `.env` loaded) a guarded one-off via the project's Neo4j resource. Do NOT use `scripts/reset_graph.py` (verify its scope first — it may wipe the whole graph):
+
+```bash
+uv run python - <<'PYEOF'
+from dotenv import load_dotenv; load_dotenv()
+from pipeline.resources import new_neo4j_from_env
+r = new_neo4j_from_env()
+with r.get_driver() as d, d.session(database=r.database) as s:
+    n = s.run('MATCH (c:Concept) RETURN count(c) AS n').single()['n']
+    print(f'About to DETACH DELETE {n} Concept nodes from {r.uri}')
+    s.run('MATCH (c:Concept) DETACH DELETE c')
+    print('deleted')
+PYEOF
 ```
 (`DETACH DELETE` removes the `DISCUSSES`/`DERIVED_FROM`/`DEFINES`/`USES` edges with the nodes; Papers,
 Chunks, Definitions, Results, citations remain.)
@@ -911,7 +922,7 @@ Chunks, Definitions, Results, citations remain.)
 
 Run:
 ```bash
-docker exec kr_postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "TRUNCATE entity_embeddings, alias_map, resolution_decisions;"'
+docker exec kr_postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "TRUNCATE entity_embeddings, resolution_decisions;" -c "DELETE FROM alias_map WHERE source IS DISTINCT FROM '\human'\;"'
 ```
 (If any `alias_map.source = '"'"'human'"'"'` rows ever exist, export them first and re-insert after — none exist on the current corpus.)
 
