@@ -214,10 +214,11 @@ def graph_write(context) -> MaterializeResult:
 
         with context.resources.postgres.connect() as conn:
             with conn.cursor() as cur:
-                # pgvector embedding upsert for newly-created Concepts (one unit with the node)
+                # pgvector embedding upsert for newly-created Concepts (one unit with the node).
+                # Only rows that CREATE a canonical carry an embedding (resolver sets it None on
+                # merges); merged rows reuse the canonical's already-stored vector. This keeps the
+                # upsert deterministic — exactly one vector per canonical, not last-write-wins.
                 for c in concepts:
-                    # Upsert for every concept (created OR merged), keyed by canonical name, so the
-                    # Neo4j Concept node and its pgvector embedding can never drift out of sync.
                     if c.get("embedding") is not None:
                         upsert_embedding(cur, c["name"], "Concept", c["embedding"])
                 # Sole writer of alias_map (spec rev 2 §7): register canonical_key -> canonical,

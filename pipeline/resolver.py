@@ -219,11 +219,17 @@ def resolve_concepts(concepts, embeddings, *, lookup_by_key, nearest, similarity
             concepts[rep]["name"], k, embeddings[rep],
             lookup_by_key=lookup_by_key, nearest=nearest, similarity_to=similarity_to,
             adjudicate=adjudicate, high=high, low=low)
+        # The canonical's stored embedding is owned by the row that CREATES it. A create* action
+        # establishes a new canonical (canonical == name == this surface), so it carries the
+        # representative's vector; merges (and the merge_local members below) carry None so they
+        # never overwrite the canonical's established embedding — graph_write upserts keyed by
+        # canonical name, so >1 vector per canonical would be last-write-wins / nondeterministic.
+        emb = embeddings[rep] if action.startswith("create") else None
         res[rep] = ConceptResolution(concepts[rep]["name"], canonical, concepts[rep]["kind"],
-                                     action, score, matched_to, note, embeddings[rep])
+                                     action, score, matched_to, note, emb)
         if reg is not None:
             aliases.append(reg)
         for j in idxs[1:]:
             res[j] = ConceptResolution(concepts[j]["name"], canonical, concepts[j]["kind"],
-                                       "merge_local", 1.0, canonical, None, embeddings[j])
+                                       "merge_local", 1.0, canonical, None, None)
     return res, aliases

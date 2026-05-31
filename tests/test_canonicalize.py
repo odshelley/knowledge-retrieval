@@ -8,7 +8,7 @@ from pipeline.canonicalize import canonical_key
     ("Fokker-Planck equation", "Fokker–Planck equation"),
     ("Fokker-Planck (FP)", "Fokker-Planck"),
     ("Method of Moments (MoM)", "Method of Moments"),
-    ("Girsanov’s theorem", "Girsanov’s theorem"),
+    ("Girsanov's theorem", "Girsanov’s theorem"),
 ])
 def test_obvious_duplicates_share_key(a, b):
     assert canonical_key(a) == canonical_key(b)

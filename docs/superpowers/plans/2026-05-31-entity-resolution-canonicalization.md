@@ -922,7 +922,7 @@ Chunks, Definitions, Results, citations remain.)
 
 Run:
 ```bash
-docker exec kr_postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "TRUNCATE entity_embeddings, resolution_decisions;" -c "DELETE FROM alias_map WHERE source IS DISTINCT FROM '\human'\;"'
+docker exec kr_postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "TRUNCATE entity_embeddings, resolution_decisions;" -c "DELETE FROM alias_map WHERE source IS DISTINCT FROM '\''human'\'';"'
 ```
 (If any `alias_map.source = '"'"'human'"'"'` rows ever exist, export them first and re-insert after — none exist on the current corpus.)
 

@@ -23,8 +23,9 @@ from pipeline.storage import EXTRACTED_BUCKET
 def resolved_concept_row(surface: str, canonical: str, kind: str, action: str,
                          embedding: list[float]) -> dict:
     """One resolved-concept record (one per original surface). `surface` is the extracted name used by
-    graph_write to attach defines/uses edges; `name` is the canonical node key; `embedding` is upserted
-    by graph_write keyed on the canonical name."""
+    graph_write to attach defines/uses edges; `name` is the canonical node key; `embedding` is the
+    vector graph_write upserts keyed on the canonical name — non-None only on rows that CREATE a
+    canonical, None on merges (the resolver guarantees one vector per canonical, see resolve_concepts)."""
     return {"surface": surface, "name": canonical, "kind": kind,
             "action": action, "embedding": embedding}
 
