@@ -42,8 +42,13 @@ class OpenAILLMResource(ConfigurableResource):
     """OpenAI used for entity extraction (gpt-5-nano) and embeddings (text-embedding-3-small)."""
     api_key: str = Field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
     extraction_model: str = "gpt-5-nano"
+    adjudication_model: str | None = None  # None -> fall back to extraction_model
     embedding_model: str = "text-embedding-3-small"
     request_timeout: float = 300.0
+
+    @property
+    def effective_adjudication_model(self) -> str:
+        return self.adjudication_model or self.extraction_model
 
     def get_client(self):
         from openai import OpenAI

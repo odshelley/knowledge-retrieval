@@ -1,14 +1,10 @@
 """Create the pgvector extension + resolver tables."""
 from __future__ import annotations
 
-from dotenv import load_dotenv
-
 import os
 
 import psycopg
 from dotenv import load_dotenv
-
-load_dotenv()
 
 load_dotenv()
 
@@ -30,6 +26,8 @@ DDL = [
     "CREATE UNIQUE INDEX IF NOT EXISTS pending_citations_uniq ON pending_citations ("
     " citing_paper_id, coalesce(ref_doi,''), coalesce(ref_arxiv_id,''),"
     " coalesce(ref_s2_id,''), coalesce(ref_title_norm,''))",
+    "ALTER TABLE alias_map ADD COLUMN IF NOT EXISTS source text",
+    "ALTER TABLE resolution_decisions ADD COLUMN IF NOT EXISTS note text",
 ]
 
 

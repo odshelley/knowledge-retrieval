@@ -234,6 +234,8 @@ Also add a `Summary` node + `Paper HAS_SUMMARY Summary` (the current pipeline cr
 
 **Deferred (phase 2):** a CLI/UI to adjudicate the flagged band; decisions populate the alias map and future runs honour them automatically. No rework needed — the table and alias seam exist from v1.
 
+> **REVISED 2026-05-31** — see `2026-05-31-entity-resolution-canonicalization-design.md`. The ambiguous-band rule above (create-new/split, not merge) is superseded: a deterministic `canonical_key` normalizer collapses obvious duplicates first, and the band escalates to a **guarded LLM** — only a confident SAME auto-merges; UNSURE/error then create-new + flag for human review. The alias map is written by `graph_write` (not the resolve step) and is never populated for flagged/uncertain pairs.
+
 ---
 
 ## 8. Models
