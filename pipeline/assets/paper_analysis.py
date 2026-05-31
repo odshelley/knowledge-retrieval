@@ -42,7 +42,7 @@ def paper_analysis(context) -> MaterializeResult:
     client = context.resources.anthropic.get_client()
     resp = client.messages.parse(
         model=context.resources.anthropic.summary_model,
-        max_tokens=4000,
+        max_tokens=16000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": md[:MAX_ANALYSIS_CHARS]}],
         output_format=PaperAnalysis,

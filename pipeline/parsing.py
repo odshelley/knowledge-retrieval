@@ -1,9 +1,19 @@
-"""Docling parsing with text/OCR mode routing. Output: markdown with LaTeX equations."""
+"""PDF → markdown parsing.
+
+NOTE: switched from Docling to pypdfium2 for speed. Docling's ML pipeline
+(layout + OCR + VLM) is impractically slow on CPU, and Docker on Apple Silicon
+cannot access the Mac GPU (no Metal/MPS passthrough), so every parse was CPU-only
+and hung on first-run HuggingFace model downloads. pypdfium2 extracts the text
+layer in well under a second with no models. Tradeoff: it does NOT reconstruct
+LaTeX from rendered equations (no fast parser can) — equation glyphs come through
+approximately. The original Docling implementation is preserved in
+parsing.py.docling-bak for when a GPU host / VLM path is available.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Threshold: avg chars/page below this ⇒ assume scanned/image ⇒ OCR.
+# Threshold: avg chars/page below this ⇒ assume scanned/image ⇒ would need OCR.
 MIN_CHARS_PER_PAGE = 100
 
 
@@ -24,23 +34,25 @@ class ParseResult:
 
 
 def parse_pdf(path: str) -> ParseResult:
-    """Convert a PDF to markdown+LaTeX. Tries text mode; falls back to OCR/VLM mode."""
-    from docling.document_converter import DocumentConverter
+    """Convert a digital PDF to text/markdown using pypdfium2 (fast, no ML)."""
+    import pypdfium2 as pdfium
 
-    conv = DocumentConverter()
-    doc = conv.convert(path).document
-    md = doc.export_to_markdown()
-    pages = getattr(doc, "num_pages", lambda: 1)() if callable(getattr(doc, "num_pages", None)) else 1
+    pdf = pdfium.PdfDocument(path)
+    try:
+        pages = len(pdf)
+        parts = []
+        for i in range(pages):
+            page = pdf[i]
+            textpage = page.get_textpage()
+            parts.append(textpage.get_text_range())
+            textpage.close()
+            page.close()
+    finally:
+        pdf.close()
+
+    md = "\n\n".join(parts).strip()
     if needs_ocr(extractable_chars=len(md), page_count=max(pages, 1)):
-        # SCANNED/IMAGE PATH — must emit LaTeX, so use the Granite-Docling VLM pipeline,
-        # NOT plain `do_ocr=True` (that runs Tesseract/EasyOCR → prose, no LaTeX; see Gate A4).
-        from docling.datamodel.base_models import InputFormat
-        from docling.document_converter import PdfFormatOption
-        from docling.pipeline.vlm_pipeline import VlmPipeline
-
-        vlm_conv = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_cls=VlmPipeline)}
-        )
-        md = vlm_conv.convert(path).document.export_to_markdown()
+        # Scanned/image PDF — no text layer. A real OCR/VLM path is needed here;
+        # pypdfium2 alone can't help. Surface as empty so the asset can flag it.
         return ParseResult(markdown=md, mode="vlm")
     return ParseResult(markdown=md, mode="text")
