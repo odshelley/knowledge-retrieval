@@ -1,8 +1,12 @@
 """Create the pgvector extension + resolver tables."""
 from __future__ import annotations
 
+from dotenv import load_dotenv
+
 import os
 import psycopg
+
+load_dotenv()
 
 DDL = [
     "CREATE EXTENSION IF NOT EXISTS vector",
