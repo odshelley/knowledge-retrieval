@@ -5,10 +5,15 @@ import pytest
 from pipeline.resolver import (
     EMBEDDING_DIM,
     Decision,
+    Verdict,
+    adjudicate,
     decide,
     lookup_alias,
+    lookup_by_key,
     nearest,
     record_decision,
+    similarity_to,
+    upsert_alias,
     upsert_embedding,
 )
 
@@ -23,8 +28,8 @@ def test_decide_creates_below_low():
     assert decide(0.4, high=0.9, low=0.6) == Decision.CREATE
 
 
-def test_decide_ambiguous_band_creates_and_flags():
-    assert decide(0.75, high=0.9, low=0.6) == Decision.CREATE_FLAGGED
+def test_decide_ambiguous_band_escalates_to_llm():
+    assert decide(0.75, high=0.9, low=0.6) == Decision.ADJUDICATE
 
 
 def test_decide_at_high_threshold():
@@ -32,7 +37,7 @@ def test_decide_at_high_threshold():
 
 
 def test_decide_at_low_threshold():
-    assert decide(0.6, high=0.9, low=0.6) == Decision.CREATE_FLAGGED
+    assert decide(0.6, high=0.9, low=0.6) == Decision.ADJUDICATE
 
 
 # --- DB function tests (mock cursor) ---
@@ -82,3 +87,39 @@ def test_lookup_alias_hit_and_miss():
     assert lookup_alias(cur, "Concept", "alias") == "Canonical Name"
     cur.fetchone.return_value = None
     assert lookup_alias(cur, "Concept", "alias") is None
+
+
+# --- LLM adjudicator tests (mock OpenAI client) ---
+
+
+class _FakeMessage:
+    def __init__(self, verdict):
+        self.parsed = verdict
+        self.refusal = None
+
+
+class _FakeResp:
+    def __init__(self, verdict):
+        self.choices = [type("C", (), {"message": _FakeMessage(verdict)})()]
+
+
+class _FakeClient:
+    def __init__(self, verdict):
+        self._v = verdict
+        self.chat = type("Chat", (), {"completions": self})()
+
+    def parse(self, **kwargs):
+        return _FakeResp(self._v)
+
+
+def test_adjudicate_returns_three_way_verdict():
+    v = Verdict(decision="SAME", reason="acronym of the same term")
+    client = _FakeClient(v)
+    out = adjudicate(client, "gpt-5-nano", "Bridge Matching", "Bridge Matching (BM)")
+    assert out.decision == "SAME"
+
+
+def test_verdict_rejects_bad_decision():
+    import pydantic
+    with pytest.raises(pydantic.ValidationError):
+        Verdict(decision="MAYBE", reason="x")
