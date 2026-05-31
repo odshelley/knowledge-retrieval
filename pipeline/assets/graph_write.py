@@ -10,7 +10,7 @@ import json
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.partitions import documents_partitions_def
-from pipeline.resolver import upsert_embedding
+from pipeline.resolver import upsert_embedding, upsert_alias
 from pipeline.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET, TRIAGE_BUCKET
 from pipeline.text_norm import normalize_statement
 
@@ -220,6 +220,10 @@ def graph_write(context) -> MaterializeResult:
                     # Neo4j Concept node and its pgvector embedding can never drift out of sync.
                     if c.get("embedding") is not None:
                         upsert_embedding(cur, c["name"], "Concept", c["embedding"])
+                # Sole writer of alias_map (spec rev 2 §7): register canonical_key -> canonical,
+                # co-located with the Concept node + embedding so an alias never precedes its node.
+                for reg in resolved.get("alias_registrations", []):
+                    upsert_alias(cur, "Concept", reg["key"], reg["canonical"], reg["source"])
                 # forward: this paper → its references
                 for ref in triage.get("references", []):
                     found = s.run(FIND_CITED, s2=ref.get("s2_id"), doi=ref.get("doi"),
