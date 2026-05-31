@@ -136,6 +136,41 @@ def _extend_unique(dst: list[str], src: list[str]) -> None:
             dst.append(item)
 
 
+# Structural math markup / operators that mark a string as notation (NOT letters, hyphen, space).
+_MATH_SIGNAL_CHARS = set("_^*\\(){}|")
+
+
+def _has_three_letter_run(s: str) -> bool:
+    """True if s has a run of >=3 consecutive Unicode-alphabetic letters (a word-like token)."""
+    run = 0
+    for ch in s:
+        if ch.isalpha():
+            run += 1
+            if run >= 3:
+                return True
+        else:
+            run = 0
+    return False
+
+
+def _has_math_signal(s: str) -> bool:
+    """True if s contains math markup: structural chars, a digit, or a non-letter symbol.
+    Greek/accented LETTERS (σ, Π, ũ) are letters, not signals; hyphen and whitespace are not signals."""
+    for ch in s:
+        if ch in _MATH_SIGNAL_CHARS or ch.isdigit():
+            return True
+        if not ch.isascii() and not ch.isalpha() and not ch.isspace():
+            return True
+    return False
+
+
+def _is_notation_only(name: str) -> bool:
+    """Conservative backstop: a concept name is notation-only (and should not be a Concept) iff it
+    carries a math signal AND has no >=3-letter word. Errs toward keeping (real concept > stray symbol)."""
+    s = name.replace("$", "")
+    return _has_math_signal(s) and not _has_three_letter_run(s)
+
+
 def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     # Chunks overlap, so the same concept/definition/result is extracted from adjacent chunks.
     # Dedup all three by the same normalized key graph_write uses for ids, so overlap doesn't

@@ -1,3 +1,5 @@
+import pytest
+
 from pipeline.extraction import (
     ExtractionResult, parse_extraction, merge_results,
     Concept, Definition, Result,
@@ -87,3 +89,21 @@ def test_merge_results_unions_link_lists_across_overlapping_chunks():
     assert len(merged.results) == 1
     assert merged.results[0].uses == ["BSDE", "Feynman-Kac"]
     assert merged.results[0].depends_on == ["Lemma 2.4"]              # deduped, not doubled
+
+
+@pytest.mark.parametrize("name", [
+    "W_t", "X_t", "Π*", "ũ(x,t)", "p_σ(x̃)", r"$\Pi^*$", "∇ρ",
+])
+def test_is_notation_only_drops_bare_notation(name):
+    from pipeline.extraction import _is_notation_only
+    assert _is_notation_only(name) is True
+
+
+@pytest.mark.parametrize("name", [
+    "Brownian motion", "Schrödinger bridge", "Markovian projection",
+    "OT", "SB", "ELBO", "SDE", "BSDE", "WWR",
+    "σ-algebra", "L² space", "k-NN", "GPT-4", "2-Wasserstein distance",
+])
+def test_is_notation_only_keeps_real_concepts(name):
+    from pipeline.extraction import _is_notation_only
+    assert _is_notation_only(name) is False
