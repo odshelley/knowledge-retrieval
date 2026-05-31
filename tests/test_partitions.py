@@ -1,4 +1,4 @@
-from pipeline.partitions import documents_partitions_def, hash_bytes
+from pipeline.runtime.partitions import documents_partitions_def, hash_bytes
 
 def test_hash_bytes_is_stable_sha256_hex():
     h = hash_bytes(b"hello")

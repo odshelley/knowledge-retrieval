@@ -4,9 +4,9 @@ from pipeline.assets import (
     raw_blob, parsed_document, triage_metadata, chunks,
     extracted_graph, resolved_entities, graph_write, paper_analysis,
 )
-from pipeline.jobs import ingest_document
-from pipeline.schedules import daily_ingest_schedule
-from pipeline.resources import (
+from pipeline.runtime.jobs import ingest_document
+from pipeline.runtime.schedules import daily_ingest_schedule
+from pipeline.runtime.resources import (
     AnthropicResource, OpenAILLMResource, minio_from_env, new_neo4j_from_env, postgres_from_env,
 )
 

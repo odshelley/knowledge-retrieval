@@ -4,9 +4,9 @@ from __future__ import annotations
 import botocore.exceptions
 from dagster import MaterializeResult, MetadataValue, asset
 
-from pipeline.partitions import documents_partitions_def, hash_bytes
+from pipeline.runtime.partitions import documents_partitions_def, hash_bytes
 from pipeline.source import list_pdf_files, source_dir
-from pipeline.storage import RAW_BUCKET
+from pipeline.runtime.storage import RAW_BUCKET
 
 
 def _upload_if_absent(s3, bucket: str, key: str, data: bytes) -> bool:

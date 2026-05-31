@@ -1,6 +1,6 @@
 import os
 from unittest.mock import patch
-from pipeline.resources import (
+from pipeline.runtime.resources import (
     Neo4jResource,
     MinIOResource,
     OpenAILLMResource,

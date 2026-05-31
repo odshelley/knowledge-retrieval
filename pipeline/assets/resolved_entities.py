@@ -8,7 +8,7 @@ import json
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.embedding import embed_texts
-from pipeline.partitions import documents_partitions_def
+from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.resolver import (
     adjudicate,
     lookup_by_key,
@@ -17,7 +17,7 @@ from pipeline.resolver import (
     resolve_concepts,
     similarity_to,
 )
-from pipeline.storage import EXTRACTED_BUCKET
+from pipeline.runtime.storage import EXTRACTED_BUCKET
 
 
 def resolved_concept_row(surface: str, canonical: str, kind: str, action: str,

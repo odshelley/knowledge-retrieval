@@ -6,8 +6,8 @@ import json
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.analysis import PaperAnalysis, SYSTEM_PROMPT
-from pipeline.partitions import documents_partitions_def
-from pipeline.storage import ANALYSIS_BUCKET, PARSED_BUCKET, TRIAGE_BUCKET
+from pipeline.runtime.partitions import documents_partitions_def
+from pipeline.runtime.storage import ANALYSIS_BUCKET, PARSED_BUCKET, TRIAGE_BUCKET
 
 WRITE_SUMMARY = """
 MATCH (p:Paper {id:$paper_id})

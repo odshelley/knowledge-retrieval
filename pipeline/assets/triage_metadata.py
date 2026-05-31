@@ -8,8 +8,8 @@ from dagster import MaterializeResult, asset
 
 from pipeline import research_port as rp
 from pipeline.assets.parsed_document import QuarantineError
-from pipeline.partitions import documents_partitions_def
-from pipeline.storage import PARSED_BUCKET, TRIAGE_BUCKET
+from pipeline.runtime.partitions import documents_partitions_def
+from pipeline.runtime.storage import PARSED_BUCKET, TRIAGE_BUCKET
 
 FRONTMATTER_PROMPT = (
     "You are extracting bibliographic metadata from the first page of a document. "

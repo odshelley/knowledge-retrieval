@@ -8,8 +8,8 @@ from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.chunking import split_markdown
 from pipeline.embedding import embed_texts
-from pipeline.partitions import documents_partitions_def
-from pipeline.storage import CHUNKS_BUCKET, PARSED_BUCKET
+from pipeline.runtime.partitions import documents_partitions_def
+from pipeline.runtime.storage import CHUNKS_BUCKET, PARSED_BUCKET
 
 
 @asset(partitions_def=documents_partitions_def(), deps=["parsed_document"],

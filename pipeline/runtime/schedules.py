@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dagster import RunRequest, ScheduleEvaluationContext, schedule
 
-from pipeline.partitions import DOCUMENTS_PARTITION
+from pipeline.runtime.partitions import DOCUMENTS_PARTITION
 from pipeline.source import file_partition_key, list_pdf_files, source_dir
 
 

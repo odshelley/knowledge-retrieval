@@ -9,9 +9,9 @@ import json
 
 from dagster import MaterializeResult, MetadataValue, asset
 
-from pipeline.partitions import documents_partitions_def
+from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.resolver import upsert_embedding, upsert_alias
-from pipeline.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET, TRIAGE_BUCKET
+from pipeline.runtime.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET, TRIAGE_BUCKET
 from pipeline.text_norm import normalize_statement
 
 

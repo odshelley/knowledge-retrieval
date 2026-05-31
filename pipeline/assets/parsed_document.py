@@ -7,8 +7,8 @@ from pathlib import Path
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.parsing import parse_pdf
-from pipeline.partitions import documents_partitions_def
-from pipeline.storage import PARSED_BUCKET, RAW_BUCKET
+from pipeline.runtime.partitions import documents_partitions_def
+from pipeline.runtime.storage import PARSED_BUCKET, RAW_BUCKET
 
 
 class QuarantineError(Exception):
