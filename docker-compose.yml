@@ -94,7 +94,7 @@ services:
       - ./data:/opt/code/data:ro
       - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
       - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
-      # - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
+      - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
     ports:
       - "3000:3000"
 
@@ -136,7 +136,7 @@ services:
       - ./data:/opt/code/data:ro
       - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
       - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
-      # - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
+      - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
     command: ["uv", "run", "dagster-daemon", "run", "-w", "/opt/dagster_home/workspace.yaml"]
 
 volumes:
