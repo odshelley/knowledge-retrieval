@@ -1,6 +1,6 @@
 import pytest
 
-from pipeline.extraction import (
+from pipeline.extraction.extraction import (
     ExtractionResult, parse_extraction, merge_results,
     Concept, Definition, Result,
 )
@@ -96,7 +96,7 @@ def test_merge_results_unions_link_lists_across_overlapping_chunks():
     "x=y", "a+b", "p/q", "x<y", "f>g",   # ASCII operators are math signals too
 ])
 def test_is_notation_only_drops_bare_notation(name):
-    from pipeline.extraction import _is_notation_only
+    from pipeline.extraction.extraction import _is_notation_only
     assert _is_notation_only(name) is True
 
 
@@ -106,7 +106,7 @@ def test_is_notation_only_drops_bare_notation(name):
     "σ-algebra", "L² space", "k-NN", "GPT-4", "2-Wasserstein distance",
 ])
 def test_is_notation_only_keeps_real_concepts(name):
-    from pipeline.extraction import _is_notation_only
+    from pipeline.extraction.extraction import _is_notation_only
     assert _is_notation_only(name) is False
 
 
@@ -136,6 +136,6 @@ def test_concept_name_description_forbids_bare_notation():
 
 
 def test_system_prompt_states_both_rules():
-    from pipeline.extraction import SYSTEM_PROMPT
+    from pipeline.extraction.extraction import SYSTEM_PROMPT
     assert "LaTeX" in SYSTEM_PROMPT
     assert "Brownian motion" in SYSTEM_PROMPT  # the concept-vs-notation few-shot

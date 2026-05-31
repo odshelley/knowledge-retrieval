@@ -5,7 +5,7 @@ prompt with the OpenAI path, so the output shape (ExtractionResult) is identical
 derives the json_schema output format from ExtractionResult and validates the response back."""
 from __future__ import annotations
 
-from pipeline.extraction import (
+from pipeline.extraction.extraction import (
     SYSTEM_PROMPT,
     ExtractionResult,
 )
