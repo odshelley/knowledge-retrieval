@@ -179,6 +179,8 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     seen_c, concepts = set(), []
     for p in parts:
         for c in p.concepts:
+            if _is_notation_only(c.name):
+                continue  # bare notation is never a concept (backstop; primary fix is the prompt)
             if c.name.lower() not in seen_c:
                 seen_c.add(c.name.lower())
                 concepts.append(c)

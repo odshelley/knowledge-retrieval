@@ -107,3 +107,16 @@ def test_is_notation_only_drops_bare_notation(name):
 def test_is_notation_only_keeps_real_concepts(name):
     from pipeline.extraction import _is_notation_only
     assert _is_notation_only(name) is False
+
+
+def test_merge_results_drops_notation_only_concepts_keeps_real():
+    part = ExtractionResult(concepts=[
+        Concept(name="Brownian motion", kind="concept"),
+        Concept(name="W_t", kind="concept"),              # notation -> dropped
+        Concept(name="brownian motion", kind="concept"),  # case dup -> deduped
+        Concept(name="Π*", kind="concept"),               # notation -> dropped
+        Concept(name="OT", kind="concept"),               # acronym -> kept
+    ])
+    merged = merge_results([part])
+    names = [c.name for c in merged.concepts]
+    assert names == ["Brownian motion", "OT"]
