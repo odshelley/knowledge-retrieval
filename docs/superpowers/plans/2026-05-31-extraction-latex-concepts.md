@@ -12,7 +12,7 @@
 
 ---
 
-### Task 1: `_is_notation_only` backstop helper
+## Task 1: `_is_notation_only` backstop helper
 
 A pure predicate: a name is notation-only iff it carries a *math signal* (markup/operator/digit) **and** has no run of ≥3 consecutive letters. Keeps clean acronyms (`OT`, `SB`), drops notation (`W_t`, `Π*`).
 
@@ -105,7 +105,7 @@ git commit -m "feat(extraction): add _is_notation_only backstop predicate"
 
 ---
 
-### Task 2: Drop notation-only concepts in `merge_results`
+## Task 2: Drop notation-only concepts in `merge_results`
 
 Wire the backstop into the concept-collection loop so notation-only names never become concepts, while the existing case-insensitive dedup and definition/result dedup are preserved.
 
@@ -177,7 +177,7 @@ git commit -m "feat(extraction): drop notation-only concepts in merge_results"
 
 ---
 
-### Task 3: Prompt + field-description changes (concept rule + LaTeX) with a regression guard
+## Task 3: Prompt + field-description changes (concept rule + LaTeX) with a regression guard
 
 Rewrite the model-facing instructions so the model (a) treats concepts as named ideas and (b) renders all math as LaTeX, with two few-shot exemplars. Add a cheap tripwire test so a future edit can't silently drop these rules.
 
@@ -302,7 +302,7 @@ git commit -m "feat(extraction): concept=named-idea rule + LaTeX math in prompt/
 
 ---
 
-### Task 4: Full-suite green check
+## Task 4: Full-suite green check
 
 **Files:** none (verification only).
 

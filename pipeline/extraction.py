@@ -154,8 +154,10 @@ def _extend_unique(dst: list[str], src: list[str]) -> None:
             dst.append(item)
 
 
-# Structural math markup / operators that mark a string as notation (NOT letters, hyphen, space).
-_MATH_SIGNAL_CHARS = set("_^*\\(){}|")
+# Structural math markup / operators that mark a string as notation. Includes ASCII operators
+# (/ + = < >) so 'x=y', 'a+b', 'p/q' are caught. Deliberately excludes hyphen and whitespace —
+# they appear in real names ('σ-algebra', 'k-NN', 'state-of-the-art').
+_MATH_SIGNAL_CHARS = set("_^*\\(){}|/+=<>")
 
 
 def _has_three_letter_run(s: str) -> bool:

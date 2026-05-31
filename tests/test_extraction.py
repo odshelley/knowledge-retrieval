@@ -93,6 +93,7 @@ def test_merge_results_unions_link_lists_across_overlapping_chunks():
 
 @pytest.mark.parametrize("name", [
     "W_t", "X_t", "Π*", "ũ(x,t)", "p_σ(x̃)", r"$\Pi^*$", "∇ρ",
+    "x=y", "a+b", "p/q", "x<y", "f>g",   # ASCII operators are math signals too
 ])
 def test_is_notation_only_drops_bare_notation(name):
     from pipeline.extraction import _is_notation_only
