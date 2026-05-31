@@ -1,5 +1,5 @@
-from pipeline import schema
-from pipeline.schema import (
+from pipeline.graph import schema
+from pipeline.graph.schema import (
     NODE_TYPES, RELATIONSHIP_TYPES, PATTERNS, iter_init_statements,
 )
 

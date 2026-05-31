@@ -6,7 +6,7 @@ import json
 
 from dagster import MaterializeResult, asset
 
-from pipeline import research_port as rp
+from pipeline.graph import research_port as rp
 from pipeline.assets.parsed_document import QuarantineError
 from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.runtime.storage import PARSED_BUCKET, TRIAGE_BUCKET
