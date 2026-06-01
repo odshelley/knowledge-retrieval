@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock, patch
-from pipeline.research_port import (
+from pipeline.graph.research_port import (
     compute_paper_id, strip_arxiv_version, lookup_by_arxiv, top_reference_records,
 )
 
@@ -15,7 +15,7 @@ def test_compute_paper_id_falls_back_to_normalized_title():
 def test_strip_arxiv_version():
     assert strip_arxiv_version("2401.12345v3") == "2401.12345"
 
-@patch("pipeline.research_port.requests.get")
+@patch("pipeline.graph.research_port.requests.get")
 def test_lookup_by_arxiv_maps_fields(mock_get):
     mock_get.return_value = MagicMock(status_code=200, json=lambda: {
         "paperId": "abc", "title": "T", "abstract": "A", "year": 2020,

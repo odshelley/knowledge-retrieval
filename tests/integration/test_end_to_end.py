@@ -5,9 +5,9 @@ from dagster import materialize
 
 from pipeline.assets import (raw_blob, parsed_document, triage_metadata, chunks,
                              extracted_graph, resolved_entities, graph_write, paper_analysis)
-from pipeline.resources import (new_neo4j_from_env, minio_from_env, OpenAILLMResource,
+from pipeline.runtime.resources import (new_neo4j_from_env, minio_from_env, OpenAILLMResource,
                                 AnthropicResource, postgres_from_env)
-from pipeline.partitions import DOCUMENTS_PARTITION
+from pipeline.runtime.partitions import DOCUMENTS_PARTITION
 
 
 def _required_env(name: str) -> str:

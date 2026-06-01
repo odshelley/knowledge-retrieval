@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pipeline.resolver import (
+from pipeline.resolution.resolver import (
     EMBEDDING_DIM,
     Decision,
     Verdict,
@@ -156,7 +156,7 @@ def test_record_decision_writes_note():
 
 
 def test_effective_adjudication_model_falls_back_to_extraction():
-    from pipeline.resources import OpenAILLMResource
+    from pipeline.runtime.resources import OpenAILLMResource
     r = OpenAILLMResource(api_key="x")
     assert r.effective_adjudication_model == r.extraction_model
     r2 = OpenAILLMResource(api_key="x", adjudication_model="gpt-5")

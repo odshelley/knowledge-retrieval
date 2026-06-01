@@ -1,4 +1,4 @@
-from pipeline.chunking import split_markdown, _segments
+from pipeline.ingest.chunking import split_markdown, _segments
 
 def test_segments_keep_display_math_intact():
     md = "para one\n\n$$\na = b\n+ c\n$$\n\npara two"

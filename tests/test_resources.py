@@ -1,10 +1,8 @@
 import os
 from unittest.mock import patch
-from pipeline.resources import (
+from pipeline.runtime.resources import (
     Neo4jResource,
     MinIOResource,
-    OpenAILLMResource,
-    AnthropicResource,
     new_neo4j_from_env,
     legacy_neo4j_from_env,
     minio_from_env,

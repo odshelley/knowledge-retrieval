@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
-from pipeline.extraction import ExtractionResult, parse_extraction
-from pipeline.extraction_anthropic import extract_from_chunk_anthropic
+from pipeline.extraction.extraction import ExtractionResult, parse_extraction
+from pipeline.extraction.extraction_anthropic import extract_from_chunk_anthropic
 
 
 def _resp(payload: dict):

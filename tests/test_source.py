@@ -1,5 +1,5 @@
 from pathlib import Path
-from pipeline.source import list_pdf_files, file_partition_key
+from pipeline.ingest.source import list_pdf_files, file_partition_key
 
 def test_list_pdf_files_returns_only_pdfs(tmp_path: Path):
     (tmp_path / "a.pdf").write_bytes(b"x")

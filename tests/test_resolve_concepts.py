@@ -1,4 +1,4 @@
-from pipeline.resolver import resolve_concepts
+from pipeline.resolution.resolver import resolve_concepts
 
 V = [0.0] * 1536
 A = [0.1] + [0.0] * 1535

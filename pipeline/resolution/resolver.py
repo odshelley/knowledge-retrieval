@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from pipeline.canonicalize import canonical_key
+from pipeline.resolution.canonicalize import canonical_key
 
 EMBEDDING_DIM = 1536
 

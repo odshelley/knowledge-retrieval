@@ -1,5 +1,5 @@
 import pytest
-from pipeline.canonicalize import canonical_key
+from pipeline.resolution.canonicalize import canonical_key
 
 
 @pytest.mark.parametrize("a,b", [

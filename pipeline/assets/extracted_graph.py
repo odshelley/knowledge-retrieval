@@ -9,10 +9,10 @@ import os
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.assets.parsed_document import QuarantineError
-from pipeline.extraction import extract_from_chunk, merge_results
-from pipeline.extraction_anthropic import extract_from_chunk_anthropic
-from pipeline.partitions import documents_partitions_def
-from pipeline.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET
+from pipeline.extraction.extraction import extract_from_chunk, merge_results
+from pipeline.extraction.extraction_anthropic import extract_from_chunk_anthropic
+from pipeline.runtime.partitions import documents_partitions_def
+from pipeline.runtime.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET
 
 
 @asset(partitions_def=documents_partitions_def(), deps=["chunks", "triage_metadata"],
