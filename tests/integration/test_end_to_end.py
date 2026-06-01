@@ -50,6 +50,8 @@ def test_one_paper_end_to_end(tmp_path):
                      "RETURN count(*) AS n", k=key).single()["n"] == 1
         assert s.run("MATCH (c:Chunk)-[:BELONGS_TO]->(:Document {id:$k}) RETURN count(c) AS n",
                      k=key).single()["n"] > 0
+        assert s.run("MATCH (:Paper {document_id:$k})-[:HAS_DOCUMENT]->(:Document {id:$k}) "
+                     "RETURN count(*) AS n", k=key).single()["n"] == 1
 
 
 @pytest.mark.integration

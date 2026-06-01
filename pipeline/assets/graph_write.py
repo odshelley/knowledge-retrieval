@@ -111,6 +111,9 @@ def depends_on_edge_rows(paper_id: str, results: list[dict],
 WRITE_CHUNKS = """
 MERGE (d:Document {id:$doc_id}) SET d.paper_id = $paper_id
 WITH d
+MATCH (p:Paper {id:$paper_id})
+MERGE (p)-[:HAS_DOCUMENT]->(d)
+WITH d
 UNWIND $rows AS row
   MERGE (c:Chunk {id: row.id})
   SET c.text = row.text, c.position = row.position, c.embedding = row.embedding
