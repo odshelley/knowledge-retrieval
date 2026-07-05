@@ -1,7 +1,17 @@
 from pipeline.assets.graph_write import (
     concept_rows, definition_rows, result_rows, normalize_statement, def_id, result_id,
     defines_edge_rows, uses_edge_rows, depends_on_edge_rows, result_name_index,
+    WRITE_CHUNKS,
 )
+
+
+def test_write_chunks_links_paper_to_document():
+    # Regression: the Paper must be joined to its Document by an EDGE, not just the
+    # d.paper_id property — otherwise Paper->Document->Chunk is untraversable and every
+    # Paper reports zero chunks. Guarded so a missing Paper never drops chunk writes.
+    cypher = " ".join(WRITE_CHUNKS.split())
+    assert "OPTIONAL MATCH (p:Paper {id:$paper_id})" in cypher
+    assert "MERGE (p)-[:HAS_DOCUMENT]->(d)" in cypher
 
 def test_concept_rows_carry_kind_tag():
     rows = concept_rows([{"name": "WWR", "kind": "method", "action": "create", "embedding": [0.1]}])

@@ -111,6 +111,13 @@ def depends_on_edge_rows(paper_id: str, results: list[dict],
 WRITE_CHUNKS = """
 MERGE (d:Document {id:$doc_id}) SET d.paper_id = $paper_id
 WITH d
+// Link the Paper to its Document so Paper->Document->Chunk is traversable. Guarded by
+// OPTIONAL MATCH + FOREACH: if the Paper node is somehow absent, chunk writing below must
+// still proceed rather than the whole query returning no rows.
+OPTIONAL MATCH (p:Paper {id:$paper_id})
+FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END |
+  MERGE (p)-[:HAS_DOCUMENT]->(d))
+WITH d
 UNWIND $rows AS row
   MERGE (c:Chunk {id: row.id})
   SET c.text = row.text, c.position = row.position, c.embedding = row.embedding
