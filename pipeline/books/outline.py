@@ -56,7 +56,8 @@ def _section_number(title: str, chapter_no: int, ordinal: int) -> str:
 
 
 def build_structure(toc: list[TocEntry], n_pages: int) -> list[ChapterNode]:
-    chapter_entries = [e for e in toc if e.level == 0]
+    chapter_positions = [i for i, e in enumerate(toc) if e.level == 0]
+    chapter_entries = [toc[i] for i in chapter_positions]
     if len(chapter_entries) < 2:
         raise NoStructureError(
             f"only {len(chapter_entries)} chapter-level outline entries — need >= 2")
@@ -79,8 +80,9 @@ def build_structure(toc: list[TocEntry], n_pages: int) -> list[ChapterNode]:
 
         # section entries belonging to this chapter: level-1 entries positionally between
         # this chapter entry and the next chapter entry in the ORIGINAL toc order
-        i0 = toc.index(entry)
-        i1 = toc.index(chapter_entries[n]) if n < len(chapter_entries) else len(toc)
+        # (positions, not toc.index(): duplicate bookmarks compare equal)
+        i0 = chapter_positions[n - 1]
+        i1 = chapter_positions[n] if n < len(chapter_entries) else len(toc)
         sec_entries = [e for e in toc[i0 + 1:i1] if e.level == 1]
 
         secs: list[SectionNode] = []

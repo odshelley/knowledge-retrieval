@@ -5,6 +5,7 @@
     uv run pytest tests/integration/test_book_end_to_end.py --run-integration -v
 """
 import os
+from contextlib import contextmanager
 
 import pytest
 from dagster import materialize
@@ -44,9 +45,12 @@ def _res():
             "postgres": postgres_from_env()}
 
 
+@contextmanager
 def _session():
     new = new_neo4j_from_env()
-    return new.get_driver().session(database=new.database)
+    with new.get_driver() as driver:
+        with driver.session(database=new.database) as session:
+            yield session
 
 
 def _ingest_book(instance, key):

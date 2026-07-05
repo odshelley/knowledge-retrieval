@@ -67,6 +67,21 @@ def test_sections_sharing_a_page_clamp_page_end():
     assert ch1.sections[0].page_end >= ch1.sections[0].page_start
 
 
+def test_build_structure_duplicate_chapter_bookmarks_slice_positionally():
+    # Malformed outlines can repeat an identical bookmark (same level, title, page).
+    # Section slicing must use entry positions, not value-based list lookups, or the
+    # duplicate chapters steal/lose each other's sections.
+    toc = [
+        TocEntry(0, "Exercises", 0), TocEntry(1, "1.1 X", 0),
+        TocEntry(0, "Exercises", 2), TocEntry(1, "2.1 Y", 2),
+        TocEntry(0, "Exercises", 2), TocEntry(1, "3.1 Z", 2),
+    ]
+    ch1, ch2, ch3 = build_structure(toc, n_pages=4)
+    assert [s.title for s in ch1.sections] == ["1.1 X"]
+    assert [s.title for s in ch2.sections] == ["2.1 Y"]
+    assert [s.title for s in ch3.sections] == ["3.1 Z"]
+
+
 def test_detect_headings_fallback_finds_chapter_lines():
     pages = ["Preface text " * 20,
              "Chapter 1 Introduction\n" + "body " * 40,
