@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Ingestion Pipeline — Design Spec</title>
+<style>
+  :root{
+    --paper:#f6f1e7;
+    --paper-deep:#efe7d7;
+    --ink:#241f18;
+    --ink-soft:#5b5348;
+    --accent:#7a1f2b;        /* oxblood */
+    --accent-soft:#a8434f;
+    --rule:#c9bda6;
+    --card:#fbf7ee;
+    --code-bg:#2a241c;
+    --code-ink:#e8ddc8;
+    --code-accent:#e0a458;
+    --code-green:#a3b565;
+    --code-blue:#8fb4c9;
+    --shared:#1f5c46;        /* the "shared concept" green */
+    --shared-soft:#e3ede4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#191511;
+      --paper-deep:#131009;
+      --ink:#e9e1d2;
+      --ink-soft:#a89c8a;
+      --accent:#d47986;
+      --accent-soft:#b05560;
+      --rule:#453c30;
+      --card:#211c16;
+      --code-bg:#0f0c08;
+      --code-ink:#ddd2bc;
+      --shared:#7fc4a5;
+      --shared-soft:#1d2b23;
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:"Charter","Iowan Old Style",Georgia,serif;
+    background:var(--paper);
+    color:var(--ink);
+    line-height:1.62;
+    font-size:17px;
+    background-image:radial-gradient(ellipse 90% 60% at 50% -10%, rgba(122,31,43,.06), transparent 60%);
+  }
+  .sheet{max-width:860px;margin:0 auto;padding:56px 32px 120px}
+
+  /* ---------- masthead ---------- */
+  header{position:relative;border-bottom:3px double var(--rule);padding-bottom:34px;margin-bottom:44px}
+  .kicker{
+    font-family:Menlo,monospace;font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:18px;
+  }
+  h1{
+    font-family:Baskerville,"Hoefler Text",Georgia,serif;
+    font-weight:600;font-size:clamp(34px,5.5vw,52px);line-height:1.08;letter-spacing:-.01em;
+    max-width:14ch;
+  }
+  h1 em{font-style:italic;color:var(--accent)}
+  .meta{
+    display:flex;flex-wrap:wrap;gap:6px 28px;margin-top:22px;
+    font-family:Menlo,monospace;font-size:12px;color:var(--ink-soft);
+  }
+  .meta b{color:var(--ink);font-weight:400}
+  .stamp{
+    position:absolute;right:0;top:6px;transform:rotate(6deg);
+    font-family:Menlo,monospace;font-size:13px;letter-spacing:.3em;text-transform:uppercase;
+    color:var(--accent);border:2.5px solid var(--accent);border-radius:4px;
+    padding:6px 14px 5px 17px;opacity:.85;
+    mask-image:radial-gradient(circle at 30% 40%, black 96%, transparent 100%);
+  }
+  @media (max-width:640px){.stamp{position:static;display:inline-block;margin-top:18px}}
+
+  /* ---------- sections ---------- */
+  section{margin-bottom:58px}
+  h2{
+    font-family:Baskerville,"Hoefler Text",Georgia,serif;font-weight:600;
+    font-size:27px;letter-spacing:-.005em;margin-bottom:16px;
+    display:flex;align-items:baseline;gap:14px;
+  }
+  h2 .no{
+    font-family:Menlo,monospace;font-size:13px;color:var(--accent);
+    letter-spacing:.05em;position:relative;top:-2px;
+  }
+  h3{
+    font-family:Baskerville,Georgia,serif;font-style:italic;font-weight:500;
+    font-size:19px;margin:26px 0 10px;color:var(--ink);
+  }
+  p{margin-bottom:14px;max-width:70ch}
+  p.lede{font-size:19.5px;line-height:1.55;color:var(--ink)}
+  strong{font-weight:700}
+  em.term{color:var(--accent);font-style:italic}
+  ul{margin:0 0 14px 1.3em}
+  li{margin-bottom:8px;max-width:68ch}
+  li::marker{color:var(--accent)}
+  code{
+    font-family:Menlo,monospace;font-size:.82em;
+    background:var(--paper-deep);border:1px solid var(--rule);
+    border-radius:3px;padding:1px 5px;white-space:nowrap;
+  }
+
+  /* ---------- decisions table ---------- */
+  table{width:100%;border-collapse:collapse;font-size:15.5px;margin:6px 0 10px}
+  th{
+    text-align:left;font-family:Menlo,monospace;font-size:11px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-soft);font-weight:400;
+    padding:0 14px 8px 0;border-bottom:1.5px solid var(--ink);
+  }
+  td{padding:11px 14px 11px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+  td:first-child{font-style:italic;color:var(--ink-soft);width:32%}
+  td b{color:var(--accent);font-weight:700}
+
+  /* ---------- code blocks ---------- */
+  pre{
+    background:var(--code-bg);color:var(--code-ink);
+    font-family:Menlo,monospace;font-size:13px;line-height:1.65;
+    padding:20px 24px;border-radius:6px;overflow-x:auto;margin:16px 0 20px;
+    border:1px solid rgba(0,0,0,.25);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 8px 24px -18px rgba(36,31,24,.6);
+  }
+  pre .c{color:#8d8272;font-style:italic}
+  pre .k{color:var(--code-accent)}
+  pre .n{color:var(--code-blue)}
+  pre .g{color:var(--code-green)}
+
+  /* ---------- diagram frames ---------- */
+  figure{
+    background:var(--card);border:1px solid var(--rule);border-radius:8px;
+    padding:26px 20px 14px;margin:20px 0 24px;overflow-x:auto;
+  }
+  figcaption{
+    font-family:Menlo,monospace;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-soft);text-align:center;margin-top:14px;
+  }
+  svg{display:block;margin:0 auto;min-width:720px;width:100%;height:auto}
+  svg text{font-family:Menlo,monospace}
+  .nd rect{fill:var(--paper);stroke:var(--ink);stroke-width:1.4;rx:5}
+  .nd text{fill:var(--ink);font-size:13px;font-weight:bold}
+  .nd .sub{font-size:9.5px;font-weight:normal;fill:var(--ink-soft)}
+  .nd.hub rect{fill:var(--shared-soft);stroke:var(--shared);stroke-width:2.4}
+  .nd.hub text{fill:var(--shared)}
+  .edge{stroke:var(--ink-soft);stroke-width:1.3;fill:none;marker-end:url(#arr)}
+  .edge.acc{stroke:var(--accent);stroke-width:1.6;marker-end:url(#arrAcc)}
+  .edge.dash{stroke-dasharray:5 4}
+  .elab{font-size:9.5px;fill:var(--ink-soft);letter-spacing:.03em}
+  .elab.acc{fill:var(--accent);font-weight:bold}
+
+  /* ---------- asset-chain lanes ---------- */
+  .lane{margin:18px 0 8px}
+  .lane-title{
+    font-family:Menlo,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:12px;
+  }
+  .lane-title span{color:var(--ink-soft);text-transform:none;letter-spacing:0}
+  .chain{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:8px}
+  .step{
+    flex:0 0 auto;background:var(--paper);border:1.4px solid var(--ink);border-radius:6px;
+    padding:10px 14px;font-family:Menlo,monospace;font-size:12px;font-weight:bold;
+    display:flex;flex-direction:column;justify-content:center;min-width:118px;
+  }
+  .step small{font-weight:normal;font-size:10px;color:var(--ink-soft);margin-top:3px;line-height:1.45}
+  .step.hot{border-color:var(--accent);color:var(--accent)}
+  .arrow{
+    flex:0 0 auto;align-self:center;padding:0 7px;color:var(--accent);
+    font-size:17px;line-height:1;
+  }
+  .chain-note{
+    font-family:Menlo,monospace;font-size:11px;color:var(--shared);
+    margin:6px 0 0 4px;
+  }
+
+  /* ---------- callout ---------- */
+  .callout{
+    border-left:3px solid var(--accent);background:var(--card);
+    padding:16px 22px;margin:20px 0;border-radius:0 6px 6px 0;
+  }
+  .callout p{margin-bottom:6px}
+  .callout p:last-child{margin-bottom:0}
+
+  footer{
+    border-top:3px double var(--rule);margin-top:20px;padding-top:22px;
+    font-family:Menlo,monospace;font-size:11.5px;color:var(--ink-soft);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <div class="kicker">knowledge-retrieval · design spec · §docs/superpowers/specs</div>
+  <h1>Book Ingestion, <em>Grounded</em> to the Theorem</h1>
+  <div class="meta">
+    <span>date <b>2026-07-05</b></span>
+    <span>status <b>approved, pending final review</b></span>
+    <span>depends on <b>c636533 restructure · 432b426 HAS_DOCUMENT fix</b></span>
+  </div>
+  <div class="stamp">Approved</div>
+</header>
+
+<section>
+  <h2><span class="no">§1</span>Goal</h2>
+  <p class="lede">Ingest books into the <strong>same Neo4j graph</strong> as papers, with grounding fit for a mathematician: answers cite <em>“Theorem 3.1, Cont&nbsp;&amp;&nbsp;Tankov, §3.2, p.&nbsp;71”</em>, and a concept extracted from a book resolves to the <strong>same global <code>Concept</code> node</strong> as the identical concept extracted from a paper.</p>
+  <p>Books were explicitly deferred by the original document-graph design because sequential per-chunk extraction times out on book-length inputs, and the paper triage stage quarantines anything that is not a paper. This design removes both obstacles without touching the working paper path.</p>
+</section>
+
+<section>
+  <h2><span class="no">§2</span>Decisions</h2>
+  <table>
+    <tr><th>Question</th><th>Decision</th></tr>
+    <tr><td>Grounding granularity</td><td><b>Theorem / definition level.</b> Numbered results and definitions become first-class nodes carrying book, chapter, section, and page location.</td></tr>
+    <tr><td>Extraction coverage</td><td><b>Everything, chapter-partitioned.</b> The whole book is eventually extracted; one Dagster partition per chapter makes it restartable and observable.</td></tr>
+    <tr><td>Corpus</td><td><b>Born-digital publisher PDFs.</b> Clean text layers, usually embedded TOC bookmarks. OCR out of scope.</td></tr>
+    <tr><td>Routing</td><td><b>Separate <code>BOOKS_SOURCE_DIR</code></b> watched by its own sensor. No paper-vs-book auto-triage.</td></tr>
+    <tr><td>Architecture</td><td><b>Approach A — parallel asset lineage, shared internals.</b> A second asset chain in the same code location, reusing existing packages as libraries.</td></tr>
+  </table>
+  <h3>Alternatives rejected</h3>
+  <ul>
+    <li><strong>Branch inside existing assets</strong> (one partition set, <code>doc_type</code> flag): couples both pipelines, keeps the book-timeout problem, and puts regression risk on a paper path that works today.</li>
+    <li><strong>Separate Dagster code location or repo</strong> sharing only Neo4j: forces packaging or duplicating the resolution stack — and duplicated entity resolution is exactly how two drifting Concept spaces happen.</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="no">§3</span>Graph schema</h2>
+  <p>New node labels: <em class="term">Chapter</em> and <em class="term">Section</em>. Everything else is reused: <code>Book</code> (declared in <code>schema.py</code>, never yet populated), <code>Document</code>, <code>Chunk</code>, <code>Concept</code>, <code>Definition</code>, <code>Result</code>, <code>Author</code>.</p>
+
+  <figure>
+    <svg viewBox="0 0 960 470" role="img" aria-label="Schema diagram: Book and Paper hierarchies converging on a shared Concept node">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-soft)"/>
+        </marker>
+        <marker id="arrAcc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+      </defs>
+
+      <!-- row 1: structure -->
+      <g class="nd"><rect x="40"  y="36" width="112" height="46"/><text x="96"  y="57" text-anchor="middle">Book</text><text class="sub" x="96" y="72" text-anchor="middle">isbn / title id</text></g>
+      <g class="nd"><rect x="228" y="36" width="112" height="46"/><text x="284" y="57" text-anchor="middle">Chapter</text><text class="sub" x="284" y="72" text-anchor="middle">{book}:ch03</text></g>
+      <g class="nd"><rect x="416" y="36" width="112" height="46"/><text x="472" y="57" text-anchor="middle">Section</text><text class="sub" x="472" y="72" text-anchor="middle">№ 3.2 · pages</text></g>
+      <g class="nd"><rect x="792" y="36" width="112" height="46"/><text x="848" y="57" text-anchor="middle">Paper</text><text class="sub" x="848" y="72" text-anchor="middle">existing path</text></g>
+
+      <path class="edge" d="M152,59 H226"/><text class="elab" x="189" y="52" text-anchor="middle">HAS_CHAPTER</text>
+      <path class="edge" d="M340,59 H414"/><text class="elab" x="377" y="52" text-anchor="middle">HAS_SECTION</text>
+
+      <!-- document + chunk -->
+      <g class="nd"><rect x="40" y="164" width="112" height="46"/><text x="96" y="185" text-anchor="middle">Document</text><text class="sub" x="96" y="200" text-anchor="middle">shared plumbing</text></g>
+      <g class="nd"><rect x="40" y="292" width="112" height="46"/><text x="96" y="313" text-anchor="middle">Chunk</text><text class="sub" x="96" y="328" text-anchor="middle">embedding · pages</text></g>
+
+      <path class="edge" d="M96,82 V162"/><text class="elab" x="106" y="126">HAS_DOCUMENT</text>
+      <path class="edge" d="M96,290 V212"/><text class="elab" x="106" y="256">BELONGS_TO</text>
+      <path class="edge" d="M152,309 C 300,300 430,180 468,86"/><text class="elab" x="310" y="270">PART_OF</text>
+
+      <!-- statements -->
+      <g class="nd"><rect x="398" y="180" width="148" height="52"/><text x="472" y="200" text-anchor="middle">Definition · Result</text><text class="sub" x="472" y="216" text-anchor="middle">label “Thm 3.1” · page</text></g>
+      <g class="nd"><rect x="774" y="180" width="148" height="52"/><text x="848" y="200" text-anchor="middle">Definition · Result</text><text class="sub" x="848" y="216" text-anchor="middle">paper-local ids</text></g>
+
+      <path class="edge acc" d="M472,82 V178"/><text class="elab acc" x="482" y="134">STATES</text>
+      <path class="edge acc" d="M848,82 V178"/><text class="elab acc" x="858" y="134">STATES</text>
+
+      <!-- the bridge -->
+      <g class="nd hub"><rect x="586" y="352" width="148" height="56"/><text x="660" y="374" text-anchor="middle">Concept</text><text class="sub" x="660" y="391" text-anchor="middle" fill="var(--shared)">one global node — shared</text></g>
+
+      <path class="edge acc" d="M510,232 C 545,290 585,330 612,350"/><text class="elab acc" x="512" y="300">DEFINES · USES</text>
+      <path class="edge acc" d="M812,232 C 778,290 736,330 708,350"/><text class="elab acc" x="742" y="300" text-anchor="start">DEFINES · USES</text>
+      <path class="edge dash" d="M96,338 C 140,430 470,442 584,398"/><text class="elab" x="330" y="430" text-anchor="middle">COVERS (Book → Concept, aggregate)</text>
+    </svg>
+    <figcaption>fig. 1 — paper and book hierarchies converge on one shared Concept node</figcaption>
+  </figure>
+
+<pre><span class="c">// nodes</span>
+(:<span class="n">Book</span>    {id, title, authors, year, edition, isbn, publisher})
+(:<span class="n">Chapter</span> {id, number, title, page_start, page_end})   <span class="c">// id = {book_id}:ch03</span>
+(:<span class="n">Section</span> {id, number, title, page_start, page_end})   <span class="c">// number = "3.2"</span>
+
+<span class="c">// edges</span>
+(Book)-[:<span class="k">HAS_DOCUMENT</span>]->(Document)       <span class="c">// same anchor pattern as Paper (432b426)</span>
+(Author)-[:<span class="k">AUTHORED</span>]->(Book)
+(Book)-[:<span class="k">HAS_CHAPTER</span> {order}]->(Chapter)
+(Chapter)-[:<span class="k">HAS_SECTION</span> {order}]->(Section)
+(Chunk)-[:<span class="k">BELONGS_TO</span>]->(Document)        <span class="c">// unchanged — existing chunk RAG intact</span>
+(Chunk)-[:<span class="k">PART_OF</span>]->(Section)            <span class="c">// new — every chunk located in hierarchy</span>
+(Section)-[:<span class="k">STATES</span>]->(Definition|Result) <span class="c">// papers: Paper-STATES</span>
+(Definition)-[:<span class="k">DEFINES</span>]->(Concept)       <span class="c">// identical to papers</span>
+(Result)-[:<span class="k">USES</span>]->(Concept)              <span class="c">// identical to papers</span>
+(Result)-[:<span class="k">DEPENDS_ON</span>]->(Result)         <span class="c">// may cross chapters within a book</span>
+(Book)-[:<span class="k">COVERS</span>]->(Concept)              <span class="c">// declared long ago, finally populated</span></pre>
+
+  <p><code>Definition</code> and <code>Result</code> gain a <strong><code>label</code></strong> property carrying the book’s own numbering (<code>"Theorem 3.1"</code>; null when unnumbered) and a <strong><code>page</code></strong> property. Ids stay content-local, <code>{book_id}:ch03:res:{hash12}</code>, mirroring the paper-local scheme so statements never falsely merge across sources.</p>
+  <p>Concepts are the bridge between corpora. <em>“Every statement of the Lévy–Khintchine formula I have”</em> is one pattern, returning Papers and Sections mixed:</p>
+
+<pre><span class="k">MATCH</span> (c:<span class="n">Concept</span> {name: <span class="g">"Lévy-Khintchine representation"</span>})
+      &lt;-[:<span class="k">DEFINES</span>|<span class="k">USES</span>]-(s)&lt;-[:<span class="k">STATES</span>]-(loc)
+<span class="k">RETURN</span> s.label, s.statement, loc   <span class="c">// loc: mix of Paper and Section nodes</span></pre>
+
+  <h3>Housekeeping folded in</h3>
+  <ul>
+    <li>Add <code>Chapter</code>, <code>Section</code>, <code>Document</code> to <code>NODE_TYPES</code>; add <code>HAS_DOCUMENT</code>, <code>HAS_CHAPTER</code>, <code>HAS_SECTION</code>, <code>PART_OF</code> to <code>RELATIONSHIP_TYPES</code> (the paper pipeline’s <code>HAS_DOCUMENT</code> is missing from the list today).</li>
+    <li>Unique constraints on <code>Chapter.id</code>, <code>Section.id</code>; extend <code>PATTERNS</code> with the new triples.</li>
+    <li>Fix stale <code>pipeline.schema</code> / <code>pipeline.cypher</code> imports in <code>scripts/init_neo4j.py</code> and <code>scripts/reset_graph.py</code>, broken since the restructure.</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="no">§4</span>Identity</h2>
+  <p><code>book_id = isbn:{isbn13}</code> when frontmatter extraction finds one, else <code>title:{normalized}</code> — the same precedence idiom as <code>compute_paper_id</code> (doi&nbsp;&gt;&nbsp;arxiv&nbsp;&gt;&nbsp;title). No Semantic Scholar, no external lookup in v1. Chapter and section ids derive from <code>book_id</code> plus position.</p>
+</section>
+
+<section>
+  <h2><span class="no">§5</span>Asset chain &amp; partitioning</h2>
+  <p>Two dynamic partition sets, two jobs, one new sensor. New assets live in <code>pipeline/assets/</code>; logic in a new <code>pipeline/books/</code> package plus the reused existing packages.</p>
+
+  <div class="lane">
+    <div class="lane-title">Lane 1 · <code>books</code> partitions <span>— key = SHA-256 of the PDF · sensor on BOOKS_SOURCE_DIR</span></div>
+    <div class="chain">
+      <div class="step">book_raw_blob<small>PDF → MinIO</small></div><div class="arrow">→</div>
+      <div class="step">book_parsed<small>pypdfium2, per-page text + PDF outline</small></div><div class="arrow">→</div>
+      <div class="step">book_metadata<small>LLM frontmatter → title, ISBN, book_id</small></div><div class="arrow">→</div>
+      <div class="step hot">book_structure<small>Chapter/Section tree; registers ch. partitions ⤵</small></div><div class="arrow">→</div>
+      <div class="step">book_chunks<small>split_markdown per section + embeddings</small></div><div class="arrow">→</div>
+      <div class="step">book_structure_write<small>Book/Chapter/Section/Chunk → Neo4j</small></div>
+    </div>
+    <div class="chain-note">✓ after this single run, vector RAG covers the whole book — before any extraction</div>
+  </div>
+
+  <div class="lane">
+    <div class="lane-title">Lane 2 · <code>book_chapters</code> partitions <span>— key = {book_sha}:ch03 · auto-enqueued, serialized</span></div>
+    <div class="chain">
+      <div class="step">book_chapter_extraction<small>existing models + label capture · ~20–40 chunks ≈ minutes</small></div><div class="arrow">→</div>
+      <div class="step hot">book_chapter_resolved<small>the same resolve_concepts() as papers</small></div><div class="arrow">→</div>
+      <div class="step">book_chapter_graph_write<small>Section-STATES · COVERS · alias_map upserts</small></div>
+    </div>
+    <div class="chain-note">✓ same canonical_key · same pgvector thresholds (0.90 / 0.60) · same LLM adjudicator · same audit table</div>
+  </div>
+
+  <div class="callout">
+    <p><strong>The “a Lévy process is a Lévy process” guarantee</strong> is enforced by code reuse, not convention: book chapters call the identical <code>resolve_concepts()</code> against the identical Postgres <code>entity_embeddings</code> and <code>alias_map</code> tables that papers use. There is one Concept space.</p>
+  </div>
+
+  <h3>Orchestration</h3>
+  <ul>
+    <li>After <code>book_structure_write</code> succeeds, <strong>all chapter partitions are auto-enqueued</strong>. The existing <code>max_concurrent_runs=1</code> serializes them, preserving the single-writer invariant resolution depends on.</li>
+    <li>Chapters run in ascending order: cross-chapter <code>DEPENDS_ON</code> <em>back</em>-references resolve at write time by <code>(book_id, label)</code>; a <em>forward</em> reference to a not-yet-extracted chapter is logged and skipped in v1.</li>
+    <li>The paper chain is untouched. Shared-file edits are limited to <code>schema.py</code> additions and small refactors that expose existing functions with no paper-path behavior change.</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="no">§6</span>Error handling</h2>
+  <ul>
+    <li><strong>Scanned / no text layer</strong> → <code>QuarantineError("needs-ocr")</code> via the existing <code>needs_ocr()</code> check.</li>
+    <li><strong>No outline and heading detection fails</strong> → <code>QuarantineError("no-structure")</code> with a log of what was tried. Corpus is born-digital, so rare; the v2 fallback would be synthetic fixed-size sections, not a redesign.</li>
+    <li><strong>Chapter extraction/write failure</strong> → that partition fails visibly in the Dagster UI and re-runs alone. All graph writes are <code>MERGE</code>-based on content-hash ids, so re-runs are idempotent.</li>
+    <li><strong>Forward <code>DEPENDS_ON</code></strong> → logged and skipped.</li>
+    <li><strong>A half-extracted book is a valid state</strong>, not an error: structure + RAG for everything, theorem graph for extracted chapters. The Dagster partition view is the progress bar.</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="no">§7</span>Testing</h2>
+  <ul>
+    <li><strong>Unit:</strong> outline → Chapter/Section tree builder (messy-nesting fixtures); section-aware chunking with correct page attribution; <code>label</code> parsing (“Theorem 3.1”, “Definition 2.14”, unnumbered); <code>book_id</code> precedence (isbn &gt; title).</li>
+    <li><strong>Integration fixture:</strong> a small LaTeX-built book PDF (~3 chapters, a few numbered theorems) checked into the repo; full chain against dev Neo4j; assert hierarchy edges, <code>Section-STATES</code>, labels, pages via Cypher.</li>
+    <li><strong>The Lévy-process test, literally:</strong> seed a Concept via the paper path, extract a fixture chapter mentioning the same concept, assert both sources point at the <em>same</em> Concept node — the shared-resolution guarantee as a regression test.</li>
+    <li><strong>Paper-path regression:</strong> existing tests untouched and passing.</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="no">§8</span>Out of scope (v1)</h2>
+  <ul>
+    <li>OCR / scanned books</li>
+    <li>The retrieval/query layer (spec-only for papers too; this schema is designed to serve both when built — <code>spec/05-query-router.md</code>)</li>
+    <li>Cross-source statement linking (book theorem ↔ paper theorem)</li>
+    <li>External metadata enrichment (Open Library, etc.)</li>
+    <li>A book analogue of <code>paper_analysis</code> summaries</li>
+    <li>Figures and exercises</li>
+  </ul>
+</section>
+
+<footer>
+  <span>knowledge-retrieval · book ingestion design</span>
+  <span>md source: docs/superpowers/specs/2026-07-05-book-ingestion-design.md</span>
+</footer>
+
+</div>
+</body>
+</html>

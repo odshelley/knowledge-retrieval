@@ -40,6 +40,11 @@ class Definition(BaseModel):
         description="The exact term being defined. If it contains mathematical notation, render it "
         "as LaTeX in $...$."
     )
+    name: str = Field(
+        default="",
+        description='Label of the definition as printed, e.g. "Definition 2.14". '
+        "Empty string if the text gives no label.",
+    )
     statement: str = Field(
         description="The full formal definition as stated in the text. Render ALL mathematical "
         "notation as LaTeX: inline math in $...$, display equations in $$...$$. Convert any Unicode "

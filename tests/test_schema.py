@@ -64,3 +64,47 @@ def test_init_cypher_has_new_constraints():
     assert "definition_id" in joined
     assert "result_id" in joined
     assert "summary_id" in joined
+
+
+def test_book_pipeline_node_types_present():
+    from pipeline.graph.schema import NODE_TYPES
+    for label in ("Chapter", "Section", "Document"):
+        assert label in NODE_TYPES
+
+
+def test_book_pipeline_relationship_types_present():
+    from pipeline.graph.schema import RELATIONSHIP_TYPES
+    for rel in ("HAS_DOCUMENT", "HAS_CHAPTER", "HAS_SECTION", "PART_OF"):
+        assert rel in RELATIONSHIP_TYPES
+
+
+def test_book_pipeline_patterns_present():
+    from pipeline.graph.schema import PATTERNS
+    expected = [
+        ("Book", "HAS_DOCUMENT", "Document"),
+        ("Paper", "HAS_DOCUMENT", "Document"),
+        ("Book", "HAS_CHAPTER", "Chapter"),
+        ("Chapter", "HAS_SECTION", "Section"),
+        ("Chunk", "BELONGS_TO", "Document"),
+        ("Chunk", "PART_OF", "Section"),
+        ("Section", "STATES", "Definition"),
+        ("Section", "STATES", "Result"),
+    ]
+    for triple in expected:
+        assert triple in PATTERNS
+
+
+def test_init_cypher_has_chapter_and_section_constraints():
+    from pipeline.graph.schema import iter_init_statements
+    joined = " ".join(" ".join(s.split()) for s in iter_init_statements())
+    assert "CREATE CONSTRAINT chapter_id IF NOT EXISTS" in joined
+    assert "CREATE CONSTRAINT section_id IF NOT EXISTS" in joined
+
+
+def test_init_scripts_import_current_module_paths():
+    # Regression: scripts still importing pipeline.schema / pipeline.cypher broke at c636533.
+    import pathlib
+    for script in ("scripts/init_neo4j.py", "scripts/reset_graph.py"):
+        text = pathlib.Path(script).read_text()
+        assert "pipeline.schema" not in text.replace("pipeline.graph.schema", "")
+        assert "pipeline.cypher" not in text.replace("pipeline.graph.cypher", "")

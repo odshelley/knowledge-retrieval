@@ -6,8 +6,8 @@ import sys
 
 from neo4j import GraphDatabase
 
-from pipeline.cypher import batched_detach_delete
-from pipeline.schema import iter_init_statements
+from pipeline.graph.cypher import batched_detach_delete
+from pipeline.graph.schema import iter_init_statements
 
 
 def main() -> None:

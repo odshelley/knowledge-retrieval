@@ -19,6 +19,10 @@ NODE_TYPES = [
     "Definition",
     "Result",
     "Summary",
+    "Chapter",
+    "Section",
+    "Document",
+    "Chunk",
 ]
 
 # Verbatim from legacy DB. Verbs are subject-first
@@ -48,6 +52,10 @@ RELATIONSHIP_TYPES = [
     "USES",
     "DEPENDS_ON",
     "HAS_SUMMARY",
+    "HAS_DOCUMENT",
+    "HAS_CHAPTER",
+    "HAS_SECTION",
+    "PART_OF",
 ]
 
 # Verbatim patterns from the legacy DB (start, rel, end).
@@ -86,6 +94,14 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Result",     "USES",         "Concept"),
     ("Result",     "DEPENDS_ON",   "Result"),
     ("Paper",      "HAS_SUMMARY",  "Summary"),
+    ("Paper",      "HAS_DOCUMENT", "Document"),
+    ("Book",       "HAS_DOCUMENT", "Document"),
+    ("Book",       "HAS_CHAPTER",  "Chapter"),
+    ("Chapter",    "HAS_SECTION",  "Section"),
+    ("Chunk",      "BELONGS_TO",   "Document"),
+    ("Chunk",      "PART_OF",      "Section"),
+    ("Section",    "STATES",       "Definition"),
+    ("Section",    "STATES",       "Result"),
 ]
 
 INIT_CYPHER = """
@@ -139,6 +155,12 @@ CREATE CONSTRAINT result_id IF NOT EXISTS
 
 CREATE CONSTRAINT summary_id IF NOT EXISTS
   FOR (s:Summary) REQUIRE s.id IS UNIQUE;
+
+CREATE CONSTRAINT chapter_id IF NOT EXISTS
+  FOR (c:Chapter) REQUIRE c.id IS UNIQUE;
+
+CREATE CONSTRAINT section_id IF NOT EXISTS
+  FOR (s:Section) REQUIRE s.id IS UNIQUE;
 """
 
 

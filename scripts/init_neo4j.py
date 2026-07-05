@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
-from pipeline.schema import iter_init_statements
+from pipeline.graph.schema import iter_init_statements
 
 load_dotenv()
 

@@ -16,6 +16,16 @@ def source_dir() -> Path:
     return Path(value).expanduser()
 
 
+def books_source_dir() -> Path:
+    value = os.environ.get("BOOKS_SOURCE_DIR")
+    if not value:
+        raise RuntimeError(
+            "BOOKS_SOURCE_DIR is not set — point it at the folder of book PDFs to ingest "
+            "(see .env.example)."
+        )
+    return Path(value).expanduser()
+
+
 def list_pdf_files(root: Path) -> list[Path]:
     return [p for p in root.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"]
 

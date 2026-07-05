@@ -88,6 +88,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       SOURCE_DIR: ${SOURCE_DIR}
+      BOOKS_SOURCE_DIR: ${BOOKS_SOURCE_DIR:-/opt/code/data/books}
     volumes:
       - ./pipeline:/opt/code/pipeline:ro
       - ./scripts:/opt/code/scripts:ro
@@ -95,6 +96,7 @@ services:
       - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
       - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
       - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
+      - ${BOOKS_SOURCE_DIR:-./data/books}:${BOOKS_SOURCE_DIR:-/opt/code/data/books}:ro   # mount the host book corpus read-only into the container
     ports:
       - "3000:3000"
 
@@ -130,6 +132,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       SOURCE_DIR: ${SOURCE_DIR}
+      BOOKS_SOURCE_DIR: ${BOOKS_SOURCE_DIR:-/opt/code/data/books}
     volumes:
       - ./pipeline:/opt/code/pipeline:ro
       - ./scripts:/opt/code/scripts:ro
@@ -137,6 +140,7 @@ services:
       - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
       - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
       - ${SOURCE_DIR}:${SOURCE_DIR}:ro   # mount the host paper corpus read-only into the container
+      - ${BOOKS_SOURCE_DIR:-./data/books}:${BOOKS_SOURCE_DIR:-/opt/code/data/books}:ro   # mount the host book corpus read-only into the container
     command: ["uv", "run", "dagster-daemon", "run", "-w", "/opt/dagster_home/workspace.yaml"]
 
 volumes:
