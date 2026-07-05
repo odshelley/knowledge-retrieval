@@ -62,3 +62,68 @@ def section_rows(structure: dict) -> list[dict]:
                          "title": s["title"], "page_start": s["page_start"],
                          "page_end": s["page_end"], "order": i})
     return rows
+
+
+from pipeline.assets.graph_write import def_id, result_id  # noqa: E402  (chapter-local ids)
+
+WRITE_BOOK_CONCEPTS = """
+MATCH (b:Book {id:$book_id})
+UNWIND $rows AS row
+  MERGE (c:Concept {name: row.name})
+  SET c.tags = row.tags
+  MERGE (b)-[:COVERS]->(c)
+  MERGE (c)-[:COVERED_IN]->(b)
+"""
+
+WRITE_BOOK_DEFINITIONS = """
+UNWIND $rows AS row
+  MATCH (s:Section {id: row.section_id})
+  MERGE (d:Definition {id: row.id})
+  SET d.term = row.term, d.statement = row.statement, d.label = row.label,
+      d.name = row.label, d.page = row.page
+  MERGE (s)-[:STATES]->(d)
+"""
+
+WRITE_BOOK_RESULTS = """
+UNWIND $rows AS row
+  MATCH (s:Section {id: row.section_id})
+  MERGE (r:Result {id: row.id})
+  SET r.name = row.name, r.label = row.label, r.kind = row.kind,
+      r.statement = row.statement, r.page = row.page
+  MERGE (s)-[:STATES]->(r)
+"""
+
+FIND_BOOK_RESULT_BY_LABEL = """
+MATCH (r:Result) WHERE r.id STARTS WITH $book_prefix AND r.name = $label
+RETURN r.id AS id LIMIT 2
+"""
+
+
+def book_definition_rows(owner: str, section_id: str, defs: list[dict]) -> list[dict]:
+    return [{"id": def_id(owner, d["statement"]), "term": d["term"],
+             "statement": d["statement"], "label": d.get("name", ""),
+             "page": d.get("page"), "section_id": section_id} for d in defs]
+
+
+def book_result_rows(owner: str, section_id: str, results: list[dict]) -> list[dict]:
+    return [{"id": result_id(owner, r["kind"], r["statement"]), "name": r.get("name", ""),
+             "label": r.get("name", ""), "kind": r["kind"], "statement": r["statement"],
+             "page": r.get("page"), "section_id": section_id} for r in results]
+
+
+def split_depends_on(owner: str, results: list[dict],
+                     name_index: dict[str, str]) -> tuple[list[dict], list[dict]]:
+    """Within-chapter DEPENDS_ON via the collision-safe name index; anything not found is
+    returned as an unresolved (res_id, label) for the cross-chapter Cypher lookup."""
+    resolved, unresolved = [], []
+    for r in results:
+        rid = result_id(owner, r["kind"], r["statement"])
+        for dep_label in r.get("depends_on", []):
+            dep = name_index.get(dep_label)
+            if dep == rid:
+                continue  # self-reference
+            if dep is not None:
+                resolved.append({"res_id": rid, "dep_id": dep})
+            else:
+                unresolved.append({"res_id": rid, "label": dep_label})
+    return resolved, unresolved
