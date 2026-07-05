@@ -86,3 +86,14 @@ def test_structure_artifact_shape_and_ids():
     assert ch1["key"] == "f" * 64 + ":ch01"
     assert ch1["sections"][0]["id"] == "isbn:9783161484100:ch01:s01"
     assert ch1["sections"][0]["number"] == "1.1"
+
+
+def test_choose_toc_prefers_outline_falls_back_to_headings():
+    from pipeline.books.outline import choose_toc
+    pages = ["Chapter 1 Intro\n" + "x" * 200, "y" * 200, "Chapter 2 More\n" + "x" * 200]
+    assert [e.page_index for e in choose_toc([], pages)] == [0, 2]          # fallback
+    outline = [TocEntry(0, "Chapter 1 A", 0), TocEntry(0, "Chapter 2 B", 2)]
+    assert choose_toc(outline, pages) == outline                            # outline wins
+    one_entry = [TocEntry(0, "Chapter 1 A", 0)]
+    assert [e.title for e in choose_toc(one_entry, pages)] == [
+        "Chapter 1 Intro", "Chapter 2 More"]                                # thin outline → fallback

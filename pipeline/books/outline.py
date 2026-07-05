@@ -98,6 +98,13 @@ def build_structure(toc: list[TocEntry], n_pages: int) -> list[ChapterNode]:
     return chapters
 
 
+def choose_toc(toc_entries: list[TocEntry], pages: list[str]) -> list[TocEntry]:
+    """Outline bookmarks when they carry >= 2 chapters, else heading detection."""
+    if sum(1 for e in toc_entries if e.level == 0) >= 2:
+        return toc_entries
+    return detect_headings(pages)
+
+
 def structure_artifact(book_id: str, sha: str, chapters: list[ChapterNode]) -> dict:
     out = {"book_id": book_id, "chapters": []}
     for ch in chapters:
