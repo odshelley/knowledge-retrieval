@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 from dagster import MaterializeResult, MetadataValue, asset
 
@@ -37,8 +38,15 @@ def extracted_graph(context) -> MaterializeResult:
             return extract_from_chunk(oclient, cfg.extraction_model, t, timeout=cfg.request_timeout)
         model_label = cfg.extraction_model
 
+    n = len(texts)
+    context.log.info(f"extraction: {n} chunks via {provider}/{model_label} (sequential)")
     try:
-        merged = merge_results([extract_one(t) for t in texts])
+        parts = []
+        for i, t in enumerate(texts):
+            t0 = time.monotonic()
+            parts.append(extract_one(t))
+            context.log.info(f"extraction: chunk {i + 1}/{n} done in {time.monotonic() - t0:.1f}s")
+        merged = merge_results(parts)
     except (json.JSONDecodeError, ValueError, KeyError, IndexError, AttributeError) as exc:
         raise QuarantineError(f"{key}: extraction returned unparseable/invalid JSON") from exc
 
