@@ -22,3 +22,9 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip_marker)
+
+
+@pytest.fixture(scope="session")
+def book_pdf(tmp_path_factory):
+    from tests.fixtures.make_book_pdf import make_book_pdf
+    return make_book_pdf(tmp_path_factory.mktemp("bookpdf") / "tiny-book.pdf")
