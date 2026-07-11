@@ -29,3 +29,12 @@ def test_rate_limiter_blocks_after_limit():
     assert rl.allow("osian", now=13.0) is False
     assert rl.allow("ffion", now=13.0) is True      # per-token buckets
     assert rl.allow("osian", now=71.0) is True      # window expired
+
+
+def test_mint_produces_verifiable_entry():
+    from scripts.issue_token import mint
+    from server.auth import parse_tokens, verify_token
+
+    token, entry = mint("ffion")
+    assert token.startswith("kg_ffion_") and len(token) == len("kg_ffion_") + 32
+    assert verify_token(token, parse_tokens(entry)) == "ffion"
