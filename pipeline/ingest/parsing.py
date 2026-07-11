@@ -17,6 +17,12 @@ from dataclasses import dataclass
 MIN_CHARS_PER_PAGE = 100
 
 
+def sanitize_text(s: str) -> str:
+    """PDF text layers occasionally contain NUL bytes; Postgres text params reject them,
+    so they must never enter parsed artifacts (they'd resurface in extracted concept names)."""
+    return s.replace("\x00", "")
+
+
 def needs_ocr(extractable_chars: int, page_count: int) -> bool:
     if page_count <= 0:
         return True
@@ -50,7 +56,7 @@ def parse_pdf(path: str) -> ParseResult:
     finally:
         pdf.close()
 
-    md = "\n\n".join(parts).strip()
+    md = sanitize_text("\n\n".join(parts)).strip()
     if needs_ocr(extractable_chars=len(md), page_count=max(pages, 1)):
         # Scanned/image PDF — no text layer. A real OCR/VLM path is needed here;
         # pypdfium2 alone can't help. Surface as empty so the asset can flag it.
