@@ -66,7 +66,9 @@ class _FakeSession:
 
 
 class _FakeDriver:
-    def __init__(self, rows): self.rows = rows; self.session_kwargs = None
+    def __init__(self, rows):
+        self.rows = rows
+        self.session_kwargs = None
     def session(self, **kwargs):
         self.session_kwargs = kwargs
         return _FakeSession(self.rows)
