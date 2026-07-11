@@ -1,5 +1,6 @@
 """Mint a kg bearer token: prints the token (give to the colleague, once) and the
-KG_TOKENS entry (append to the server's env/secret). Usage: uv run python scripts/issue_token.py <name>"""
+KG_TOKENS entry (append to the server's env/secret). Usage: uv run python
+scripts/issue_token.py <name>"""
 from __future__ import annotations
 
 import re
