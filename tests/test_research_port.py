@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 from pipeline.graph.research_port import (
-    compute_paper_id, strip_arxiv_version, lookup_by_arxiv, top_reference_records,
+    compute_paper_id, strip_arxiv_version, lookup_by_arxiv, references, top_reference_records,
 )
 
 def test_compute_paper_id_prefers_doi():
@@ -24,6 +24,19 @@ def test_lookup_by_arxiv_maps_fields(mock_get):
     })
     p = lookup_by_arxiv("2001.00001")
     assert p["s2_id"] == "abc" and p["tldr"] == "tl;dr" and p["authors"][0]["name"] == "X"
+
+@patch("pipeline.graph.research_port.requests.get")
+def test_references_returns_empty_list_when_s2_data_is_null(mock_get):
+    # Regression: S2 can answer 200 with {"data": null}; .get("data", []) then returns
+    # None, which crashed triage with "TypeError: 'NoneType' object is not iterable".
+    mock_get.return_value = MagicMock(status_code=200, json=lambda: {"data": None})
+    assert references("abc") == []
+
+
+def test_top_reference_records_tolerates_none():
+    # Defense in depth for the same incident: never iterate None.
+    assert top_reference_records(None, limit=3) == []
+
 
 def test_top_reference_records_sorts_by_influential():
     raw = [
