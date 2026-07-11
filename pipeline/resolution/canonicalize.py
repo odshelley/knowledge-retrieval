@@ -44,6 +44,7 @@ def _strip_acronym(s: str) -> str:
 
 
 def canonical_key(name: str) -> str:
+    name = name.replace("\x00", "")  # NUL from tainted PDF text must never reach Postgres params
     casefolded_original = name.strip().casefold()
     s = unicodedata.normalize("NFKC", name)
     s = _unify_dashes_quotes(s)

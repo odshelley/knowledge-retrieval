@@ -34,3 +34,11 @@ def test_min_length_guard_returns_casefolded_original():
 def test_idempotent():
     k = canonical_key("Schrödinger Bridge (SB)")
     assert canonical_key(k) == k or canonical_key(k) == canonical_key("Schrödinger Bridge")
+
+
+def test_canonical_key_ignores_nul_bytes():
+    # Defense in depth for the NUL-byte incident: keys derived from tainted names must
+    # never carry \x00 into Postgres parameters.
+    from pipeline.resolution.canonicalize import canonical_key
+    assert "\x00" not in canonical_key("L\x00evy process\x00")
+    assert canonical_key("L\x00evy process") == canonical_key("Levy process")

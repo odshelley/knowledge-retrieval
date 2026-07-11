@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pipeline.ingest.parsing import needs_ocr
+from pipeline.ingest.parsing import needs_ocr, sanitize_text
 
 
 @dataclass
@@ -34,7 +34,7 @@ def parse_book_pdf(path: str) -> BookParse:
         for i in range(len(pdf)):
             page = pdf[i]
             textpage = page.get_textpage()
-            pages.append(textpage.get_text_range())
+            pages.append(sanitize_text(textpage.get_text_range()))
             textpage.close()
             page.close()
         toc = []
