@@ -240,7 +240,7 @@ first with `scripts/issue_token.py`):
 ```bash
 fly secrets set -c docker/fly.toml \
   KG_NEO4J_URI=... KG_NEO4J_USER=... KG_NEO4J_PASSWORD=... \
-  OPENAI_API_KEY=... KG_TOKENS="$(uv run python scripts/issue_token.py osian | sed -n 's/^KG_TOKENS entry.*: *//p')"
+  OPENAI_API_KEY=... KG_TOKENS="$(uv run python scripts/issue_token.py osian | sed -n 's/^KG_TOKENS entry[^:]*: *//p')"
 ```
 
 Then `fly deploy -c docker/fly.toml` and the smoke test above. Record the deployed
