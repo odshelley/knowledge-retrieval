@@ -49,3 +49,38 @@ def test_merge_paper_hits_dedups_title_first():
     merged = merge_paper_hits(title_rows, vector_rows, top_k=5)
     assert [r["id"] for r in merged] == ["p1", "p2"]
     assert merged[0]["score"] == 1.0
+
+
+class _FakeSession:
+    def __init__(self, rows):
+        self._rows = rows
+        self.last = None
+    def run(self, cypher, **params):
+        self.last = (cypher, params)
+        class _Rec:
+            def __init__(self, d): self._d = d
+            def data(self): return self._d
+        return [_Rec(r) for r in self._rows]
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+class _FakeDriver:
+    def __init__(self, rows): self.rows = rows; self.session_kwargs = None
+    def session(self, **kwargs):
+        self.session_kwargs = kwargs
+        return _FakeSession(self.rows)
+    def close(self): pass
+
+
+def test_graph_client_reads_with_read_access():
+    from neo4j import READ_ACCESS
+    from server.graph import GraphClient
+    from server.settings import Settings
+
+    settings = Settings(neo4j_uri="bolt://x", neo4j_user="u", neo4j_password="p")
+    driver = _FakeDriver(rows=[{"ok": 1}])
+    gc = GraphClient(settings, driver=driver, openai_client=object())
+    assert gc.read("RETURN 1 AS ok") == [{"ok": 1}]
+    assert driver.session_kwargs["default_access_mode"] == READ_ACCESS
+    assert driver.session_kwargs["database"] == "neo4j"
