@@ -67,14 +67,16 @@ def references(s2_id: str) -> list[dict]:
     try:
         r = requests.get(f"{BASE}/paper/{s2_id}/references",
                          params={"fields": REF_FIELDS, "limit": 100}, timeout=20)
-        return r.json().get("data", []) if r.status_code == 200 else []
+        # S2 can answer 200 with {"data": null} — `or []` guards the None (.get's default
+        # only covers a MISSING key), which otherwise crashes reference iteration in triage.
+        return (r.json().get("data") or []) if r.status_code == 200 else []
     except RequestException:
         return []
 
 
 def top_reference_records(raw_refs: list[dict], limit: int = 3) -> list[dict]:
     recs = []
-    for ref in raw_refs:
+    for ref in raw_refs or []:
         cp = ref.get("citedPaper") or {}
         ext = cp.get("externalIds") or {}
         recs.append({

@@ -26,5 +26,16 @@ run_launcher:
   module: dagster.core.launcher
   class: DefaultRunLauncher
 
+# DefaultRunLauncher runs each run worker as a child of the code-location gRPC
+# server; if that server recycles, the worker dies SILENTLY and the run stays
+# STARTED forever — which, with max_concurrent_runs=1, wedges the whole queue
+# (observed 2026-07-05: run 946f71c4 zombie after chunk 4/17, 8 runs queued
+# behind it overnight). Run monitoring detects the dead worker and fails the
+# run so the queue frees itself; max_runtime is a backstop for genuine hangs.
+run_monitoring:
+  enabled: true
+  poll_interval_seconds: 60
+  max_runtime_seconds: 7200
+
 telemetry:
   enabled: false
