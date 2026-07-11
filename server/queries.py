@@ -107,7 +107,7 @@ WHERE p.id = $key OR p.doi = $key OR p.arxiv_id = $key
    OR toLower(p.title) = toLower($key)
 OPTIONAL MATCH (a:Author)-[:AUTHORED]->(p)
 OPTIONAL MATCH (p)-[:HAS_SUMMARY]->(sm:Summary)
-RETURN p{.id, .title, .year, .doi, .arxiv_id, .abstract, .tldr,
+RETURN p{.id, .title, .year, .doi, .arxiv_id, .s2_id, .abstract, .tldr,
          .citation_count, .influential_citation_count} AS paper,
        collect(DISTINCT a.name) AS authors, sm.json AS summary_json
 LIMIT 1
@@ -193,12 +193,12 @@ ORDER BY coalesce(o.year, 0) DESC LIMIT 50
 """
 
 OVERVIEW_COUNTS = """
-MATCH (p:Paper) WITH count(p) AS papers
-MATCH (c:Chunk) WITH papers, count(c) AS chunks
-MATCH (co:Concept) WITH papers, chunks, count(co) AS concepts
-MATCH (d:Definition) WITH papers, chunks, concepts, count(d) AS definitions
-MATCH (r:Result)
-RETURN papers, chunks, concepts, definitions, count(r) AS results
+CALL { MATCH (p:Paper) RETURN count(p) AS papers }
+CALL { MATCH (c:Chunk) RETURN count(c) AS chunks }
+CALL { MATCH (co:Concept) RETURN count(co) AS concepts }
+CALL { MATCH (d:Definition) RETURN count(d) AS definitions }
+CALL { MATCH (r:Result) RETURN count(r) AS results }
+RETURN papers, chunks, concepts, definitions, results
 """
 
 OVERVIEW_TOP_CONCEPTS = """
