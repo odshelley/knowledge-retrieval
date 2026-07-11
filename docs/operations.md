@@ -138,3 +138,121 @@ These checks must be completed manually before the first production build is tri
 - **Docling LaTeX-fidelity spot test**: run Docling on a representative scanned PDF (exercising the VLM/OCR path) and a LaTeX-heavy PDF; verify the output preserves equations and delimiters correctly.
 - **Extraction-model evaluation**: sample 5–10 representative abstracts and confirm the extraction prompt produces well-formed `ExtractedGraph` JSON with no hallucinated node types.
 - **Post-wipe confirmation**: after running `reset_graph.py --yes`, query Aura directly (`MATCH (n) RETURN count(n)`) and confirm zero nodes before starting any pipeline runs.
+
+## kg MCP server
+
+A stateless, read-only MCP query server over the knowledge-retrieval graph, in
+`server/`. Deployed separately from the Dagster substrate above — it does not
+share a container image and does not install `dagster`/`docling`.
+
+### Environment variables
+
+Configured entirely via env vars — see the `# kg MCP server (server/) —
+read-only graph access` block in `.env.example` for the full set with
+descriptions:
+
+| Variable | Purpose |
+|---|---|
+| `KG_NEO4J_URI` | Bolt URI for the graph the server reads from |
+| `KG_NEO4J_USER` | Neo4j user — should be a dedicated read-only user (see note below) |
+| `KG_NEO4J_PASSWORD` | Password for that user |
+| `KG_NEO4J_DATABASE` | Database name (typically `neo4j`) |
+| `OPENAI_API_KEY` | Used server-side to embed incoming queries for `search_chunks`/`search_papers` |
+| `KG_TOKENS` | `name:salt:sha256hex,...` — bearer-token allowlist, built by `scripts/issue_token.py` |
+| `KG_EMBED_MODEL` | Query-embedding model (default `text-embedding-3-small`) |
+| `KG_RATE_LIMIT` | Requests/minute per token (default `60`) |
+
+### Token issuance
+
+Mint a token for a new colleague/consumer:
+
+```bash
+uv run python scripts/issue_token.py <name>   # name: lowercase alphanumeric/underscore
+```
+
+This prints two lines:
+- the **token** — give it to the colleague once, over a private channel (Slack DM,
+  Signal, etc.), never in a shared channel or a commit. It is not stored anywhere
+  server-side; if lost, the colleague needs a new token minted under a new name.
+- the **`KG_TOKENS` entry** (`name:salt:hash`) — append it (comma-separated) to the
+  server's `KG_TOKENS` secret:
+  ```bash
+  fly secrets set -c docker/fly.toml KG_TOKENS="<existing-entries>,<new-entry>"
+  ```
+  This restarts the machine to pick up the new token; existing tokens keep working.
+
+### Deploy
+
+One-time setup (see [Fly CLI setup](#fly-cli-setup) below), then:
+
+```bash
+fly deploy -c docker/fly.toml
+```
+
+Deploys `docker/Dockerfile.server` per `docker/fly.toml`. The Fly health check
+(`GET /healthz` every 30s) gates the rollout — a deploy that never reports healthy
+rolls back automatically.
+
+### Smoke test
+
+After every deploy, confirm both connectivity and every tool:
+
+```bash
+uv run --extra server python scripts/smoke_server.py https://kg-graph.fly.dev <your-token>
+```
+
+Exits 0 iff `/healthz` returns 200 and all 8 tools (`get_corpus_overview`,
+`search_chunks`, `search_papers`, `get_paper`, `get_concept`, `get_results`,
+`get_citations`, `get_dependency_chain`) return without error. Any non-zero exit
+or `ERROR` line means investigate before telling anyone the server is live.
+
+### Health
+
+- `GET /healthz` is unauthenticated and returns `{"server": true, "graph": <bool>}` —
+  `graph: false` (HTTP 503) means the app is up but Aura is unreachable (e.g. paused
+  free-tier instance — resume in the Aura console, same as the pipeline's Aura).
+- Fly's own `[[http_service.checks]]` in `docker/fly.toml` polls the same endpoint
+  and will mark the machine unhealthy / stop routing traffic to it if `graph` stays
+  false or the endpoint stops responding.
+- All `/v1/*` traffic (the MCP endpoint itself, `/v1/mcp`) requires a valid bearer
+  token; `/healthz` deliberately does not, so uptime monitors don't need a token.
+
+### Fly CLI setup
+
+The Fly CLI is not part of the base toolchain — install and authenticate once per
+machine before running any `fly` command above:
+
+```bash
+brew install flyctl
+fly auth login
+```
+
+First-time app creation (creates the Fly app from `docker/fly.toml` without
+deploying):
+
+```bash
+fly launch --no-deploy --copy-config -c docker/fly.toml   # accept the app name
+```
+
+Set secrets (Neo4j creds, OpenAI key, and the `KG_TOKENS` allowlist — mint your own
+first with `scripts/issue_token.py`):
+
+```bash
+fly secrets set -c docker/fly.toml \
+  KG_NEO4J_URI=... KG_NEO4J_USER=... KG_NEO4J_PASSWORD=... \
+  OPENAI_API_KEY=... KG_TOKENS="$(uv run python scripts/issue_token.py osian | sed -n 's/^KG_TOKENS entry.*: *//p')"
+```
+
+Then `fly deploy -c docker/fly.toml` and the smoke test above. Record the deployed
+URL (`https://<app>.fly.dev`) — the `kg` plugin's `.mcp.json` needs it.
+
+### Read-only Neo4j user — outstanding follow-up
+
+`KG_NEO4J_USER` should be a dedicated Neo4j user with the `reader` role, never the
+admin account — `server/graph.py` already opens every session with
+`default_access_mode=READ_ACCESS`, but a genuinely read-only DB user is defense in
+depth. As of Task 6, Aura's free tier didn't support creating additional users, so
+`.env`/`fly secrets` currently point `KG_NEO4J_USER` at the same admin credentials
+the pipeline uses. If/when the Aura tier is upgraded (or a `kg_reader` user becomes
+available another way), create it with the `reader` role, then update
+`KG_NEO4J_USER`/`KG_NEO4J_PASSWORD` locally and via `fly secrets set` and redeploy.
