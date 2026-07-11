@@ -29,6 +29,10 @@ dev = [
     "ipykernel>=6.29",
     "jupyterlab>=4.3",
 ]
+server = [
+    "mcp>=1.10",
+    "uvicorn>=0.30",
+]
 
 [tool.uv]
 package = false
