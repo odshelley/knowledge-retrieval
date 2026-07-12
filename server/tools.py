@@ -4,13 +4,18 @@ from __future__ import annotations
 import json
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from server import queries as q
 from server.graph import GraphClient
 
 
 def build_mcp(graph: GraphClient) -> FastMCP:
-    mcp = FastMCP("kg", stateless_http=True)
+    # FastMCP defaults to localhost-only DNS-rebinding Host filtering, which 421s any
+    # deployed hostname. Bearer auth is the perimeter here; the server is never bound
+    # to a browser-reachable localhost port in production.
+    security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    mcp = FastMCP("kg", stateless_http=True, transport_security=security)
 
     @mcp.tool()
     def search_chunks(query: str, top_k: int = 8, expand: str = "local",

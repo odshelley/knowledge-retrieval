@@ -36,10 +36,30 @@ def test_v1_requires_bearer_token():
                            headers={"Authorization": "Bearer nope"}).status_code == 401
 
 
+MCP_INIT = {
+    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+    "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+               "clientInfo": {"name": "test", "version": "0"}},
+}
+MCP_ACCEPT = {"Accept": "application/json, text/event-stream",
+              "Content-Type": "application/json"}
+
+
 def test_v1_accepts_valid_token():
     with TestClient(make_app()) as client:
-        resp = client.post("/v1/mcp", json={}, headers={"Authorization": f"Bearer {TOKEN}"})
-        assert resp.status_code != 401  # reaches the MCP app (may 4xx on protocol, not auth)
+        resp = client.post("/v1/mcp", json=MCP_INIT,
+                           headers={"Authorization": f"Bearer {TOKEN}", **MCP_ACCEPT})
+        assert resp.status_code == 200  # a real initialize must fully succeed
+
+
+def test_v1_accepts_deployed_host_header():
+    """Regression: FastMCP's default DNS-rebinding filter 421s any non-localhost Host,
+    which broke the first Fly deployment while every localhost test stayed green."""
+    with TestClient(make_app()) as client:
+        resp = client.post("/v1/mcp", json=MCP_INIT,
+                           headers={"Authorization": f"Bearer {TOKEN}", **MCP_ACCEPT,
+                                    "Host": "kg-graph.fly.dev"})
+        assert resp.status_code == 200
 
 
 def test_rate_limit_returns_429():
