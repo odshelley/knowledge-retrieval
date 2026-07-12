@@ -42,6 +42,10 @@ def _norm_symbol(symbol_latex: str) -> str:
     return re.sub(r"\s+", "", symbol_latex.strip().lower())
 
 
-def notation_node_id(book_id: str, symbol_latex: str) -> str:
+def notation_node_id(section_id: str, symbol_latex: str) -> str:
+    """Scoped per section, not per book: the same symbol reintroduced with a different
+    meaning in a later chapter must not clobber the earlier node (meaning is a plain SET
+    in WRITE_BOOK_NOTATIONS). section_id embeds the book id, so wipe_book's book-prefix
+    matching and cross-book non-collision both still hold."""
     h = hashlib.sha256(_norm_symbol(symbol_latex).encode()).hexdigest()[:12]
-    return f"{book_id}:not:{h}"
+    return f"{section_id}:not:{h}"

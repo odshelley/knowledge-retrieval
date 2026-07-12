@@ -116,24 +116,28 @@ def test_book_concepts_cypher_covers_both_directions():
     assert "MERGE (c)-[:COVERED_IN]->(b)" in c
 
 
-def test_notation_id_is_per_book_and_symbol_normalized():
-    a = notation_node_id("title:probability with martingales", "$W_t$")
-    b = notation_node_id("title:probability with martingales", "$w_T$")
-    c = notation_node_id("title:another book", "$W_t$")
-    assert a == b          # case/whitespace-insensitive within a book
-    assert a != c          # never collides across books
-    assert a.split(":not:")[0] == "title:probability with martingales"
+def test_notation_id_is_per_section_and_symbol_normalized():
+    book = "title:probability with martingales"
+    a = notation_node_id(f"{book}:ch02:s01", "$W_t$")
+    b = notation_node_id(f"{book}:ch02:s01", "$w_T$")
+    c = notation_node_id(f"{book}:ch09:s03", "$W_t$")
+    d = notation_node_id("title:another book:ch02:s01", "$W_t$")
+    assert a == b          # case/whitespace-insensitive within a section
+    assert a != c          # same symbol reintroduced later never clobbers earlier meaning
+    assert a != d          # never collides across books
+    assert a.startswith(f"{book}:")  # book prefix retained, so wipe_book still matches
 
 
 def test_book_notation_rows_resolve_concept_via_canon_map():
     rows = book_notation_rows(
-        "title:b", "sec1",
+        "title:b:ch01:s01",
         [{"symbol_latex": "$W_t$", "meaning": "Brownian motion", "concept": "brownian motion"},
          {"symbol_latex": "a.e.", "meaning": "almost everywhere", "concept": ""}],
         {"brownian motion": "Brownian motion"})
     assert rows[0]["concept"] == "Brownian motion"
     assert rows[1]["concept"] is None
-    assert rows[0]["section_id"] == "sec1"
+    assert rows[0]["section_id"] == "title:b:ch01:s01"
+    assert rows[0]["id"].startswith("title:b:ch01:s01:not:")
 
 
 def test_book_proof_rows_only_for_results_with_sketch():

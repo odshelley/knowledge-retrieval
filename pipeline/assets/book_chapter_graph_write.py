@@ -54,8 +54,7 @@ def book_chapter_graph_write(context) -> MaterializeResult:
         use_edges.extend(ue)
         sk_def += sd
         sk_use += su
-        nrows.extend(book_notation_rows(book_id, sid, sec.get("notations", []),
-                                        surface_to_canon))
+        nrows.extend(book_notation_rows(sid, sec.get("notations", []), surface_to_canon))
         prows.extend(book_proof_rows(owner, sid, sec.get("results", [])))
         du_rows.extend(def_uses_rows(owner, sec.get("definitions", []), surface_to_canon))
 
