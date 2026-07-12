@@ -58,6 +58,22 @@ class LabelIndex:
         return candidates[0] if len(candidates) == 1 else None
 
 
+def unique_label_map(rows: list[dict]) -> dict[str, str]:
+    """name -> id, EXCLUDING empty and duplicate names (mirrors
+    pipeline.assets.graph_write.result_name_index's collision-safety rationale).
+
+    Keying a plain dict on name would let the LLM fuzzy fallback resolve an ambiguous
+    reference to an arbitrary one of several same-named Results (last-wins). Dropping
+    ambiguous names here means those references never enter the fuzzy candidate space —
+    they stay unresolved and are logged+dropped, never guessed.
+    """
+    counts: dict[str, int] = {}
+    for r in rows:
+        if r["name"]:
+            counts[r["name"]] = counts.get(r["name"], 0) + 1
+    return {r["name"]: r["id"] for r in rows if r["name"] and counts[r["name"]] == 1}
+
+
 def build_label_index(rows: list[dict]) -> LabelIndex:
     idx = LabelIndex()
     for row in rows:

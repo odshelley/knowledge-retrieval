@@ -10,10 +10,9 @@ import json
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.assets.graph_write import WRITE_RESULT_DEPENDS, result_id
-from pipeline.books.labels import build_label_index
+from pipeline.books.labels import build_label_index, unique_label_map
 from pipeline.runtime.partitions import books_partitions_def
 from pipeline.runtime.storage import EXTRACTED_BUCKET, TRIAGE_BUCKET
-from pipeline.text_norm import normalize_statement
 
 FETCH_BOOK_RESULTS = """
 MATCH (b:Book {id: $book_id})-[:HAS_CHAPTER]->()-[:HAS_SECTION]->()-[:STATES]->(r:Result)
@@ -67,7 +66,7 @@ def book_link_resolution(context) -> MaterializeResult:
     with new.get_driver() as driver, driver.session(database=new.database) as s:
         nodes = [dict(rec) for rec in s.run(FETCH_BOOK_RESULTS, book_id=book_id)]
         idx = build_label_index(nodes)
-        label_to_id = {n["name"]: n["id"] for n in nodes if n["name"]}
+        label_to_id = unique_label_map(nodes)
 
         for ch in structure["chapters"]:
             key = ch["key"]
@@ -79,11 +78,6 @@ def book_link_resolution(context) -> MaterializeResult:
             owner = payload["chapter_id"]
             for sec in payload.get("sections", []):
                 results = sec.get("results", [])
-                # PROVED_IN rows need the same content-hash id the write path used. proof_chunks'
-                # result_key is (kind, normalized statement); result_id hashes the RAW statement,
-                # so recompute the id by matching this section's results on the normalized key.
-                by_key = {(r["kind"], normalize_statement(r["statement"])):
-                          result_id(owner, r["kind"], r["statement"]) for r in results}
                 for r in results:
                     rid = result_id(owner, r["kind"], r["statement"])
                     for ref in r.get("depends_on", []):
@@ -93,11 +87,14 @@ def book_link_resolution(context) -> MaterializeResult:
                         elif not dep:
                             unresolved.append((rid, ref))
                 for pr in sec.get("proof_chunks", []):
-                    rid = by_key.get(tuple(pr["result_key"]))
-                    if rid:
-                        proved_rows.append({"result_id": rid,
-                                            "section_id": sec["section_id"],
-                                            "position": pr["position"]})
+                    # result_key is (kind, normalized statement); result_id normalizes its
+                    # statement argument internally (idempotently), so this equals the id the
+                    # write path computed from the raw statement — no lookup table needed.
+                    kind, norm_stmt = pr["result_key"]
+                    rid = result_id(owner, kind, norm_stmt)
+                    proved_rows.append({"result_id": rid,
+                                        "section_id": sec["section_id"],
+                                        "position": pr["position"]})
 
         # fuzzy residue — one batched call
         ar = context.resources.anthropic
