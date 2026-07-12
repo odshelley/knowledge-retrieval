@@ -23,6 +23,8 @@ NODE_TYPES = [
     "Section",
     "Document",
     "Chunk",
+    "Notation",
+    "Proof",
 ]
 
 # Verbatim from legacy DB. Verbs are subject-first
@@ -58,6 +60,10 @@ RELATIONSHIP_TYPES = [
     "PART_OF",
     "MENTIONS",
     "EXTRACTED_FROM",
+    "INTRODUCED_IN",
+    "DENOTES",
+    "HAS_PROOF",
+    "PROVED_IN",
 ]
 
 # Verbatim patterns from the legacy DB (start, rel, end).
@@ -93,6 +99,7 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Paper",      "STATES",       "Definition"),
     ("Paper",      "STATES",       "Result"),
     ("Definition", "DEFINES",      "Concept"),
+    ("Definition", "USES",         "Concept"),
     ("Result",     "USES",         "Concept"),
     ("Result",     "DEPENDS_ON",   "Result"),
     ("Paper",      "HAS_SUMMARY",  "Summary"),
@@ -107,6 +114,10 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Chunk",      "MENTIONS",       "Concept"),
     ("Definition", "EXTRACTED_FROM", "Chunk"),
     ("Result",     "EXTRACTED_FROM", "Chunk"),
+    ("Notation",   "INTRODUCED_IN",  "Section"),
+    ("Notation",   "DENOTES",        "Concept"),
+    ("Result",     "HAS_PROOF",      "Proof"),
+    ("Result",     "PROVED_IN",      "Chunk"),
 ]
 
 INIT_CYPHER = """
@@ -178,6 +189,12 @@ CREATE CONSTRAINT chapter_id IF NOT EXISTS
 
 CREATE CONSTRAINT section_id IF NOT EXISTS
   FOR (s:Section) REQUIRE s.id IS UNIQUE;
+
+CREATE CONSTRAINT notation_id IF NOT EXISTS
+  FOR (n:Notation) REQUIRE n.id IS UNIQUE;
+
+CREATE CONSTRAINT proof_id IF NOT EXISTS
+  FOR (p:Proof) REQUIRE p.id IS UNIQUE;
 """
 
 

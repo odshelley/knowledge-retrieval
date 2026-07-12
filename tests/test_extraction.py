@@ -1,8 +1,8 @@
 import pytest
 
 from pipeline.extraction.extraction import (
-    ExtractionResult, parse_extraction, merge_results,
-    Concept, Definition, Result,
+    ExtractionResult, parse_extraction, merge_results, merge_results_with_provenance,
+    Concept, Definition, Result, Notation, ProofSketch, SYSTEM_PROMPT,
 )
 
 def test_parse_extraction_reads_concepts_with_kind():
@@ -142,8 +142,6 @@ def test_system_prompt_states_both_rules():
 
 
 def test_merge_results_with_provenance_tracks_chunk_ids():
-    from pipeline.extraction.extraction import (
-        Concept, Definition, ExtractionResult, Result, merge_results_with_provenance)
     p1 = ExtractionResult(
         concepts=[Concept(name="Brownian motion")],
         definitions=[Definition(term="BM", statement="A process with...")],
@@ -158,10 +156,143 @@ def test_merge_results_with_provenance_tracks_chunk_ids():
 
 
 def test_concept_description_first_nonempty_wins_on_merge():
-    from pipeline.extraction.extraction import Concept, ExtractionResult, merge_results
     p1 = ExtractionResult(concepts=[Concept(name="Rectified flow", description="")])
     p2 = ExtractionResult(concepts=[Concept(
         name="rectified flow", description="A method that straightens transport paths.")])
     merged = merge_results([p1, p2])
     assert len(merged.concepts) == 1
     assert merged.concepts[0].description == "A method that straightens transport paths."
+
+
+def test_provenance_survives_label_collapse():
+    """A chunk that contributed a truncated same-label Result variant must keep its
+    EXTRACTED_FROM credit after #16's pass-2 (kind,label) statement collapse."""
+    trunc = ExtractionResult(results=[Result(
+        kind="lemma", name="3.4. Composition Lemma.", statement="Composition Lemma.",
+        statement_complete=False)])
+    full = ExtractionResult(results=[Result(
+        kind="lemma", name="3.4. Composition Lemma.",
+        statement="If $f$ is measurable and $g$ is Borel then $g\\circ f$ is measurable.",
+        statement_complete=True)])
+    merged, prov = merge_results_with_provenance([trunc, full], ["doc:0", "doc:1"])
+    from pipeline.text_norm import normalize_statement
+    assert len(merged.results) == 1
+    key = "lemma|" + normalize_statement(merged.results[0].statement)
+    assert prov["results"][key] == ["doc:0", "doc:1"]  # both chunks credited
+
+
+def test_v1_payload_still_validates():
+    er = parse_extraction({
+        "concepts": [{"name": "Brownian motion", "kind": "concept"}],
+        "definitions": [{"term": "martingale", "statement": "A process such that..."}],
+        "results": [{"kind": "theorem", "statement": "Every $L^2$ martingale converges."}],
+    })
+    assert er.notations == []
+    assert er.results[0].proof is None
+    assert er.results[0].proof_present is False
+    assert er.results[0].statement_complete is True
+    assert er.definitions[0].uses == []
+
+
+def test_notation_and_proof_roundtrip():
+    er = ExtractionResult(
+        notations=[Notation(symbol_latex="$W_t$", meaning="standard Brownian motion",
+                            concept="Brownian motion")],
+        results=[{
+            "kind": "theorem", "name": "9.7. Theorem.",
+            "statement": "If $X_n \\to X$ a.s. and $|X_n| \\le Y$...",
+            "proof": {"sketch": "Apply Fatou to $Y \\pm X_n$.", "technique": "Fatou's lemma"},
+            "proof_present": True, "statement_complete": True,
+        }],
+    )
+    dumped = er.model_dump()
+    assert dumped["notations"][0]["symbol_latex"] == "$W_t$"
+    back = ExtractionResult.model_validate(dumped)
+    assert isinstance(back.results[0].proof, ProofSketch)
+    assert back.results[0].proof.technique == "Fatou's lemma"
+
+
+def test_notation_symbol_stripped():
+    n = Notation(symbol_latex="  $\\mu$ ", meaning="a measure")
+    assert n.symbol_latex == "$\\mu$"
+
+
+def _er(**kw):
+    return ExtractionResult(**kw)
+
+
+def test_merge_prefers_complete_statement_on_same_label():
+    truncated = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                              "statement": "Composition Lemma.",
+                              "statement_complete": False, "depends_on": ["Lemma 3.3"]}])
+    full = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                         "statement": "If $f$ is measurable and $g$ is Borel, then "
+                                      "$g \\circ f$ is measurable.",
+                         "statement_complete": True,
+                         "proof": {"sketch": "Preimages compose.", "technique": ""}}])
+    merged = merge_results([truncated, full])
+    assert len(merged.results) == 1
+    r = merged.results[0]
+    assert r.statement_complete is True
+    assert "Borel" in r.statement
+    assert r.depends_on == ["Lemma 3.3"]      # carried from the discarded variant
+    assert r.proof is not None                # carried from the kept variant
+
+
+def test_merge_keeps_distinct_unlabeled_results():
+    a = _er(results=[{"kind": "theorem", "statement": "Statement one."}])
+    b = _er(results=[{"kind": "theorem", "statement": "Statement two."}])
+    assert len(merge_results([a, b]).results) == 2
+
+
+def test_merge_dedups_notations_case_insensitive():
+    a = _er(notations=[{"symbol_latex": "$W_t$", "meaning": "Brownian motion"}])
+    b = _er(notations=[{"symbol_latex": "$w_T$", "meaning": "Brownian motion",
+                        "concept": "Brownian motion"}])
+    merged = merge_results([a, b])
+    assert len(merged.notations) == 1
+    assert merged.notations[0].concept == "Brownian motion"  # non-empty concept adopted
+
+
+def test_merge_three_way_same_label_collision():
+    v1 = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                       "statement": "Composition Lemma.", "statement_complete": False,
+                       "depends_on": ["Lemma 3.2"]}])
+    v2 = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                       "statement": "If $f$ is measurable then part of", "statement_complete": False,
+                       "uses": ["measurable function"]}])
+    v3 = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                       "statement": "If $f$ is measurable and $g$ is Borel, then $g \\circ f$ is measurable.",
+                       "statement_complete": True}])
+    merged = merge_results([v1, v2, v3])
+    assert len(merged.results) == 1
+    r = merged.results[0]
+    assert r.statement_complete is True
+    assert "Borel" in r.statement
+    assert r.depends_on == ["Lemma 3.2"]
+    assert r.uses == ["measurable function"]
+
+
+def test_prompt_routes_notation_not_concepts():
+    assert "notations" in SYSTEM_PROMPT
+    assert "never leave raw Unicode math" in SYSTEM_PROMPT.lower() or \
+           "never leave raw unicode math" in SYSTEM_PROMPT.lower()
+    # old absolute ban must be gone (replaced by routing)
+    assert "Bare mathematical notation is never a concept" not in SYSTEM_PROMPT
+
+
+def test_prompt_has_statement_and_frontmatter_rules():
+    assert "never copy the heading" in SYSTEM_PROMPT.lower() or \
+           "never echo the heading" in SYSTEM_PROMPT.lower()
+    assert "statement_complete" in SYSTEM_PROMPT
+    assert "table of contents" in SYSTEM_PROMPT.lower()
+
+
+def test_prompt_exceeds_opus_cache_minimum():
+    # 4096 tokens ≈ 16.4k chars; require headroom so edits can't silently drop below.
+    assert len(SYSTEM_PROMPT) > 17000, len(SYSTEM_PROMPT)
+
+
+def test_prompt_contains_exemplars():
+    assert SYSTEM_PROMPT.count("EXAMPLE INPUT") >= 2
+    assert SYSTEM_PROMPT.count("EXAMPLE OUTPUT") >= 2

@@ -44,3 +44,28 @@ def book_chapters_sensor(context: SensorEvaluationContext):
     if not requests:
         return SkipReason("no chapters awaiting extraction")
     return SensorResult(run_requests=requests)
+
+
+@sensor(job_name="resolve_book_links", minimum_interval_seconds=120)
+def book_links_sensor(context: SensorEvaluationContext):
+    instance = context.instance
+    done_chapters = set(
+        instance.get_materialized_partitions(AssetKey("book_chapter_graph_write")))
+    linked = set(instance.get_materialized_partitions(AssetKey("book_link_resolution")))
+    all_chapter_keys = instance.get_dynamic_partitions(BOOK_CHAPTERS_PARTITION)
+    by_book: dict[str, set[str]] = {}
+    for ck in all_chapter_keys:
+        by_book.setdefault(ck.rpartition(":ch")[0], set()).add(ck)
+    requests = []
+    for sha, cks in by_book.items():
+        if sha not in linked and cks and cks <= done_chapters:
+            # `sha not in linked` (this asset's own materialization state) is what actually
+            # gates re-runs: once book_link_resolution has materialized for a book, this
+            # sensor never fires for it again, however chapters change, unless that
+            # materialization is wiped first (see the migration runbook). run_key only
+            # de-duplicates the RunRequest across sensor ticks for a book that isn't linked
+            # yet — it does not make a completed link resolution re-run itself.
+            requests.append(RunRequest(partition_key=sha, run_key=f"link:{sha}:{len(cks)}"))
+    if not requests:
+        return SkipReason("no books awaiting link resolution")
+    return SensorResult(run_requests=requests)

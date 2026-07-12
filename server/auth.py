@@ -11,13 +11,26 @@ def hash_token(salt: str, token: str) -> str:
 
 
 def parse_tokens(raw: str) -> dict[str, tuple[str, str]]:
-    """Parse KG_TOKENS ('name:salt:hash,...') into {name: (salt, hash)}."""
+    """Parse KG_TOKENS ('name:salt:hash,...') into {name: (salt, hash)}.
+
+    Fails fast with a clear ValueError on malformed entries (an operator typo in
+    `fly secrets set` would otherwise crash startup with a bare unpack error). Error
+    messages reference entries by position only — never echo salt/hash material.
+    """
     entries: dict[str, tuple[str, str]] = {}
-    for part in raw.split(","):
+    for i, part in enumerate(raw.split(",")):
         part = part.strip()
         if not part:
             continue
-        name, salt, digest = part.split(":")
+        fields = part.split(":")
+        if len(fields) != 3 or not all(fields):
+            raise ValueError(
+                f"KG_TOKENS entry {i} is malformed: expected 'name:salt:hash', "
+                f"got {len(fields)} field(s)"
+            )
+        name, salt, digest = fields
+        if name in entries:
+            raise ValueError(f"KG_TOKENS entry {i}: duplicate token name {name!r}")
         entries[name] = (salt, digest)
     return entries
 

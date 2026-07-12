@@ -41,3 +41,11 @@ extract_book_chapter = define_asset_job(
     ),
     description="Per-chapter extraction: extract → resolve (shared ladder) → write.",
 )
+
+from pipeline.assets import book_link_resolution  # noqa: E402
+
+resolve_book_links = define_asset_job(
+    name="resolve_book_links",
+    selection=AssetSelection.assets(book_link_resolution.book_link_resolution),
+    description="Post-extraction linking pass: DEPENDS_ON / PROVED_IN edges from free-text refs.",
+)
