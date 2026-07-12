@@ -56,6 +56,8 @@ RELATIONSHIP_TYPES = [
     "HAS_CHAPTER",
     "HAS_SECTION",
     "PART_OF",
+    "MENTIONS",
+    "EXTRACTED_FROM",
 ]
 
 # Verbatim patterns from the legacy DB (start, rel, end).
@@ -102,6 +104,9 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Chunk",      "PART_OF",      "Section"),
     ("Section",    "STATES",       "Definition"),
     ("Section",    "STATES",       "Result"),
+    ("Chunk",      "MENTIONS",       "Concept"),
+    ("Definition", "EXTRACTED_FROM", "Chunk"),
+    ("Result",     "EXTRACTED_FROM", "Chunk"),
 ]
 
 INIT_CYPHER = """
