@@ -26,3 +26,5 @@ neo4j_course/
 # brainstorming/visual-companion + codebase-walkthrough scratch
 .superpowers/
 .codebase-walkthrough/
+
+evals/results/

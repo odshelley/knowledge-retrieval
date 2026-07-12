@@ -8,6 +8,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from server import queries as q
 from server.graph import GraphClient
+from server.retrieve import search_chunks_core
 
 
 def build_mcp(graph: GraphClient) -> FastMCP:
@@ -23,24 +24,7 @@ def build_mcp(graph: GraphClient) -> FastMCP:
         """Hybrid (vector + keyword) search over paper chunks; expand='local' adds each
         hit paper's concepts, definitions, results, and CITES neighbours; expand='concepts'
         pivots to the top concepts across hits. Cite results as (paper_title, chunk position)."""
-        top_k = q.validate_top_k(top_k)
-        expand = q.validate_expand(expand)
-        emb = graph.embed(query)
-        k = top_k * 4 if paper_id else top_k
-        vec_hits = graph.read(q.VECTOR_SEARCH, k=k, top_k=top_k,
-                              embedding=emb, paper_id=paper_id)
-        ft_hits = graph.read(q.FULLTEXT_SEARCH, q=q.lucene_escape(query),
-                             paper_id=paper_id, top_k=top_k)
-        hits = q.merge_chunk_hits(vec_hits, ft_hits, top_k)
-        out: dict = {"chunks": hits}
-        paper_ids = sorted({h["paper_id"] for h in hits})
-        if expand == "local" and paper_ids:
-            out["papers"] = graph.read(q.EXPAND_LOCAL, paper_ids=paper_ids)
-        elif expand == "concepts" and paper_ids:
-            top = graph.read(q.TOP_CONCEPTS_FOR_PAPERS, paper_ids=paper_ids)
-            out["concepts"] = graph.read(
-                q.EXPAND_CONCEPTS, names=[t["name"] for t in top])
-        return out
+        return search_chunks_core(graph, query, top_k, expand, paper_id)
 
     @mcp.tool()
     def get_paper(key: str) -> dict:
