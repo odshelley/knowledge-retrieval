@@ -33,8 +33,7 @@ Williams identifiers used below:
    Optional: stale Postgres resolution rows (concept embeddings / alias_map) for wiped-out
    concepts are harmless and shared-scoped; leave them unless auditing.
 
-4. **Clear Dagster partitions** so the sensors treat the PDF as new (inside the webserver
-   container):
+4. **Clear Dagster partitions and materializations** (inside the webserver container):
 
    ```sh
    docker exec kr_dagster_webserver sh -c 'cd /opt/code && uv run python -c "
@@ -49,19 +48,45 @@ Williams identifiers used below:
    "'
    ```
 
-   Then two UI steps (version-proof; the Python APIs for these differ across Dagster releases):
+   Then, in the UI (version-proof; the Python APIs for this differ across Dagster releases):
+   **Wipe materializations:** Assets → select all ten `book_*` assets (including
+   `book_link_resolution`) → Wipe materializations.
 
-   - **Wipe materializations:** Assets → select the ten `book_*` assets + `book_link_resolution`
-     → Wipe materializations.
-   - **Reset sensor cursors:** Sensors → `books_sensor` → reset cursor (its `run_key=<sha>`
-     memory would otherwise suppress the re-request). Same for `book_chapters_sensor` and
-     `book_links_sensor`.
+   **Do not rely on resetting sensor cursors to trigger the re-run — it will not work.**
+   Sensor run-key deduplication in Dagster is persisted in RUN STORAGE (each Run is tagged
+   with the sensor name + the `run_key` that produced it), not in the sensor's cursor.
+   `books_sensor` issues `RunRequest(partition_key=sha, run_key=sha)` and
+   `book_chapters_sensor` issues `RunRequest(partition_key=ck, run_key=ck)` — both are the
+   *same* run_keys used by the original (pre-wipe) ingestion. So even after the dynamic
+   partition is deleted here and re-added by the sensor, Dagster will silently drop those
+   sensors' `RunRequest`s as duplicates of the old runs; resetting (or not touching) the
+   cursor makes no difference to this. See step 5 for the actual re-trigger mechanism.
 
-5. **Re-ingest:** the PDF is already in `BOOKS_SOURCE_DIR`; `books_sensor` re-registers it
-   within ~5 minutes. Pipeline: `ingest_book` (structure now carries chapter roles; front/back
-   matter gets no partitions) → `extract_book_chapter` per content chapter → `book_links_sensor`
-   fires `resolve_book_links` once all chapters land. Watch localhost:3000. Expected cost ≈ $3–5
-   (Opus extraction + sketches).
+   **Verify this against the Dagster version actually running before executing this
+   runbook** — run-key dedup and cursor semantics are implementation details, not part of
+   the public API, and could change between Dagster releases.
+
+5. **Re-ingest — manual launch required, because of the run-key dedup in step 4:**
+
+   - `books_sensor` re-registers the `sha` dynamic partition within ~5 minutes of the PDF
+     still being present in `BOOKS_SOURCE_DIR` (or add the partition yourself: Deployment →
+     Partitions → the books partition def → Add partition key). Either way, its own
+     `ingest_book` `RunRequest` will be dropped by run-key dedup — from the UI, open
+     **Launchpad** for the `ingest_book` job, select the `sha` partition, and **launch it
+     manually**.
+   - Once `book_structure_write` materializes for that partition (structure now carries
+     chapter roles; front/back matter gets no chapter partitions), `book_chapters_sensor`
+     will try to auto-request each content/notation_guide/exercises chapter partition — but
+     every `ck` whose chapter number existed pre-wipe hits the same `run_key=ck` dedup as
+     the old run. Backfill those chapter partitions manually instead: Deployment →
+     Partitions → this book's chapter partitions → select all → launch a backfill of
+     `extract_book_chapter`.
+   - `book_links_sensor` is new in this release, so no prior run under its run_keys exists —
+     it needs no manual intervention. Once all of the book's chapter partitions show
+     `book_chapter_graph_write` materialized, it fires `resolve_book_links` on its own within
+     its ~2-minute poll interval.
+
+   Watch localhost:3000 throughout. Expected cost ≈ $3–5 (Opus extraction + sketches).
 
 6. **Verify** against the spec's success criteria (all Cypher against the Aura DB):
 
@@ -89,10 +114,12 @@ Williams identifiers used below:
    MATCH (b:Book {id:"title:probability with martingales"})-[:HAS_CHAPTER]->()-[:HAS_SECTION]->()-[:STATES]->(r:Result)
    WHERE r.statement = r.name RETURN count(r);             // expect 0
 
-   // Front/back matter skipped entirely
+   // Front/back matter chapters get no extracted content. Note: book_chunks chunks every
+   // chapter regardless of role, so Chunk/PART_OF nodes DO exist under these chapters —
+   // only extraction (and thus STATES) is skipped for them, so count STATES only.
    MATCH (b:Book {id:"title:probability with martingales"})-[:HAS_CHAPTER]->(ch)
    WHERE ch.role IN ["front_matter","back_matter"]
-   MATCH (ch)-[:HAS_SECTION]->()-[:STATES|PART_OF]-(x) RETURN count(x);  // expect 0 STATES; chunks aren't created for skipped roles either
+   MATCH (ch)-[:HAS_SECTION]->()-[:STATES]->(x) RETURN count(x);        // expect 0
    ```
 
 7. **Paper pipeline still green:** `uv run pytest -q`, and confirm the next paper ingestion run

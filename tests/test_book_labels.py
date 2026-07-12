@@ -1,5 +1,7 @@
 from pipeline.assets.graph_write import result_id
-from pipeline.books.labels import LabelIndex, build_label_index, parse_label, unique_label_map
+from pipeline.books.labels import (
+    build_label_index, parse_label, resolve_proof_result_id, unique_label_map,
+)
 from pipeline.text_norm import normalize_statement
 
 
@@ -66,3 +68,25 @@ def test_result_id_is_stable_under_pre_normalized_statement():
     raw = "A  Statement"
     assert result_id("ch", "theorem", raw) == result_id(
         "ch", "theorem", normalize_statement(raw))
+
+
+def test_resolve_proof_result_id_trusts_computed_id_when_known():
+    idx = build_label_index(NODES)
+    assert resolve_proof_result_id(
+        "b:ch9:lemma:aaa", "9.6. Lemma.", {"b:ch9:lemma:aaa"}, idx) == "b:ch9:lemma:aaa"
+
+
+def test_resolve_proof_result_id_falls_back_to_label_when_computed_id_unknown():
+    # merge pass 2 kept a different statement variant than the one PROVED_IN was keyed on,
+    # so the id computed from the raw statement doesn't match anything written to the graph.
+    idx = build_label_index(NODES)
+    known_ids = {"b:ch9:lemma:aaa", "b:ch9:theorem:bbb"}
+    assert resolve_proof_result_id(
+        "b:ch9:lemma:stale-variant", "Theorem 9.7", known_ids, idx) == "b:ch9:theorem:bbb"
+
+
+def test_resolve_proof_result_id_drops_when_neither_resolves():
+    idx = build_label_index(NODES)
+    known_ids = {"b:ch9:lemma:aaa"}
+    assert resolve_proof_result_id(
+        "b:ch9:lemma:stale-variant", "no such label", known_ids, idx) is None

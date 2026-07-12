@@ -1,7 +1,10 @@
 """book_chapter_graph_write: writes Concepts (COVERS/COVERED_IN), Definitions/Results
 (Section-STATES, chapter-local ids, printed labels + pages), DEFINES/USES edges, and
-DEPENDS_ON with cross-chapter back-reference lookup by (book prefix, label). Owns the
-pgvector embedding + alias_map upserts for this chapter, mirroring graph_write."""
+within-chapter DEPENDS_ON. Cross-chapter depends_on refs are left unresolved here and
+re-derived from payloads by book_link_resolution (pass 2), which has the full book-wide
+label index; minting cross-chapter edges here risked wrong matches against a partial
+index. Owns the pgvector embedding + alias_map upserts for this chapter, mirroring
+graph_write."""
 from __future__ import annotations
 
 import json
@@ -13,7 +16,7 @@ from pipeline.assets.graph_write import (
     concept_rows, defines_edge_rows, result_name_index, uses_edge_rows,
 )
 from pipeline.books.write import (
-    FIND_BOOK_RESULT_BY_LABEL, WRITE_BOOK_CONCEPTS, WRITE_BOOK_DEFINITIONS, WRITE_BOOK_NOTATIONS,
+    WRITE_BOOK_CONCEPTS, WRITE_BOOK_DEFINITIONS, WRITE_BOOK_NOTATIONS,
     WRITE_BOOK_PROOFS, WRITE_BOOK_RESULTS, WRITE_DEF_USES, book_definition_rows,
     book_notation_rows, book_proof_rows, book_result_rows, def_uses_rows, split_depends_on,
 )
@@ -57,10 +60,12 @@ def book_chapter_graph_write(context) -> MaterializeResult:
         du_rows.extend(def_uses_rows(owner, sec.get("definitions", []), surface_to_canon))
 
     name_index = result_name_index(rrows)
-    dep_edges, unresolved = split_depends_on(owner, raw_results, name_index)
+    # cross-chapter refs (anything split_depends_on can't resolve within this chapter) are
+    # left unresolved here; book_link_resolution re-derives them from the payload with the
+    # full book-wide label index rather than this chapter's partial one.
+    dep_edges, _unresolved = split_depends_on(owner, raw_results, name_index)
 
     new = context.resources.neo4j_new
-    cross_linked = cross_skipped = 0
     with new.get_driver() as driver, driver.session(database=new.database) as s:
         s.run(WRITE_BOOK_CONCEPTS, book_id=book_id, rows=crows)
         s.run(WRITE_BOOK_DEFINITIONS, rows=drows)
@@ -71,20 +76,6 @@ def book_chapter_graph_write(context) -> MaterializeResult:
         s.run(WRITE_BOOK_NOTATIONS, rows=nrows)
         s.run(WRITE_BOOK_PROOFS, rows=prows)
         s.run(WRITE_DEF_USES, rows=du_rows)
-        # cross-chapter back-references: label lookup scoped to this book's Result ids
-        cross_rows = []
-        for u in unresolved:
-            hits = [rec["id"] for rec in s.run(FIND_BOOK_RESULT_BY_LABEL,
-                                               book_prefix=book_id + ":", label=u["label"])]
-            if len(hits) == 1 and hits[0] != u["res_id"]:
-                cross_rows.append({"res_id": u["res_id"], "dep_id": hits[0]})
-                cross_linked += 1
-            else:
-                cross_skipped += 1
-                context.log.info(
-                    f"depends_on skipped: {u['label']!r} → {len(hits)} matches in {book_id} "
-                    "(forward reference or ambiguous label)")
-        s.run(WRITE_RESULT_DEPENDS, rows=cross_rows)
 
         with context.resources.postgres.connect() as conn:
             with conn.cursor() as cur:
@@ -101,9 +92,8 @@ def book_chapter_graph_write(context) -> MaterializeResult:
         "results": MetadataValue.int(len(rrows)),
         "defines": MetadataValue.int(len(def_edges)),
         "uses": MetadataValue.int(len(use_edges)),
-        "depends_on": MetadataValue.int(len(dep_edges) + cross_linked),
-        "depends_on_cross_chapter": MetadataValue.int(cross_linked),
-        "skipped_refs": MetadataValue.int(sk_def + sk_use + cross_skipped),
+        "depends_on": MetadataValue.int(len(dep_edges)),
+        "skipped_refs": MetadataValue.int(sk_def + sk_use),
         "notations": MetadataValue.int(len(nrows)),
         "proofs": MetadataValue.int(len(prows)),
     })

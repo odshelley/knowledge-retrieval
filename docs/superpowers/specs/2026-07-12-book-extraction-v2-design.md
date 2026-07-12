@@ -24,6 +24,16 @@ The first real book ingestion (Williams, *Probability with Martingales*, 2026-07
 - **Statement integrity:** prompt rule — never echo the heading as the statement; if the body is cut off at the chunk boundary, extract the visible part and set `statement_complete: bool = False`. `merge_results` change: on duplicate label within a section, keep the variant with `statement_complete=True`, tie-break on longer statement (chunk overlap of 600 chars means the successor chunk usually sees the full body).
 - All new fields are optional with defaults → old payloads still validate; paper pipeline unaffected until its prompt/schema pick the fields up (which they do automatically, being shared).
 
+**Post-review amendment (2026-07-12):** because the schema/prompt changes are shared, the paper
+pipeline's extraction step also emits `notations` and per-result `proof`/`proof_present` under
+the same prompt. However, `extracted_graph` (the paper-side graph-write asset) currently
+persists only concepts, definitions, and results — it has no write path for `Notation` or
+`Proof` nodes, so paper-extracted notations and proof sketches are silently dropped rather than
+written to the graph. This is a deliberate, accepted gap for now, not a bug to fix in this
+branch: wiring paper notations/proofs into the paper graph-write path (mirroring
+`book_chapter_graph_write`'s `WRITE_BOOK_NOTATIONS`/`WRITE_BOOK_PROOFS`) is deferred follow-up
+work, tracked separately from this migration.
+
 ### 2. System prompt — one shared prompt, book-aware, with exemplars
 
 - Reframe from "STEM research papers" to "STEM research papers and mathematical books".

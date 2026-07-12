@@ -10,7 +10,8 @@ import json
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.assets.graph_write import WRITE_RESULT_DEPENDS, result_id
-from pipeline.books.labels import build_label_index, unique_label_map
+from pipeline.books.labels import build_label_index, resolve_proof_result_id, unique_label_map
+from pipeline.books.roles import EXTRACT_ROLES
 from pipeline.runtime.partitions import books_partitions_def
 from pipeline.runtime.storage import EXTRACTED_BUCKET, TRIAGE_BUCKET
 
@@ -63,18 +64,19 @@ def book_link_resolution(context) -> MaterializeResult:
     new = context.resources.neo4j_new
     dep_rows, proved_rows = [], []
     unresolved: list[tuple[str, str]] = []  # (res_id, ref)
+    proved_dropped = 0
     with new.get_driver() as driver, driver.session(database=new.database) as s:
         nodes = [dict(rec) for rec in s.run(FETCH_BOOK_RESULTS, book_id=book_id)]
         idx = build_label_index(nodes)
         label_to_id = unique_label_map(nodes)
+        known_ids = {n["id"] for n in nodes}
 
         for ch in structure["chapters"]:
+            if ch.get("role", "content") not in EXTRACT_ROLES:
+                continue  # structure artifacts from v1 lack "role" — default to content
             key = ch["key"]
-            try:
-                payload = json.loads(s3.get_object(
-                    Bucket=EXTRACTED_BUCKET, Key=f"{key}.resolved.json")["Body"].read())
-            except Exception:  # noqa: BLE001 — chapter skipped by role: no payload
-                continue
+            payload = json.loads(s3.get_object(
+                Bucket=EXTRACTED_BUCKET, Key=f"{key}.resolved.json")["Body"].read())
             owner = payload["chapter_id"]
             for sec in payload.get("sections", []):
                 results = sec.get("results", [])
@@ -88,10 +90,19 @@ def book_link_resolution(context) -> MaterializeResult:
                             unresolved.append((rid, ref))
                 for pr in sec.get("proof_chunks", []):
                     # result_key is (kind, normalized statement); result_id normalizes its
-                    # statement argument internally (idempotently), so this equals the id the
-                    # write path computed from the raw statement — no lookup table needed.
+                    # statement argument internally (idempotently), which usually equals the
+                    # id the write path computed from the raw statement. But merge pass 2 may
+                    # have kept a different statement variant for the same result, so that
+                    # computed id can name a Result that was never written — fall back to
+                    # resolving the row's printed label against the book's index.
                     kind, norm_stmt = pr["result_key"]
-                    rid = result_id(owner, kind, norm_stmt)
+                    computed = result_id(owner, kind, norm_stmt)
+                    rid = resolve_proof_result_id(computed, pr["label"], known_ids, idx)
+                    if rid is None:
+                        proved_dropped += 1
+                        context.log.info(
+                            f"proof link dropped: {pr['label']!r} (no known result id)")
+                        continue
                     proved_rows.append({"result_id": rid,
                                         "section_id": sec["section_id"],
                                         "position": pr["position"]})
@@ -116,5 +127,6 @@ def book_link_resolution(context) -> MaterializeResult:
     return MaterializeResult(metadata={
         "depends_on_edges": MetadataValue.int(len(dep_rows)),
         "proved_in_edges": MetadataValue.int(len(proved_rows)),
+        "proved_in_dropped": MetadataValue.int(proved_dropped),
         "dropped_refs": MetadataValue.int(still_dropped),
     })

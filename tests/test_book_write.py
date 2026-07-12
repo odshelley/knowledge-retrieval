@@ -1,7 +1,7 @@
 from pipeline.assets.graph_write import def_id, result_id, result_name_index
 from pipeline.books.identity import notation_node_id
 from pipeline.books.write import (
-    FIND_BOOK_RESULT_BY_LABEL, WRITE_BOOK, WRITE_BOOK_CHUNKS, WRITE_BOOK_CONCEPTS,
+    WRITE_BOOK, WRITE_BOOK_CHUNKS, WRITE_BOOK_CONCEPTS,
     WRITE_BOOK_DEFINITIONS, WRITE_BOOK_DOCUMENT, WRITE_BOOK_RESULTS, WRITE_CHAPTERS,
     WRITE_SECTIONS, book_definition_rows, book_notation_rows, book_proof_rows, book_result_rows,
     chapter_rows, section_rows, split_depends_on,
@@ -114,13 +114,6 @@ def test_book_concepts_cypher_covers_both_directions():
     c = " ".join(WRITE_BOOK_CONCEPTS.split())
     assert "MERGE (b)-[:COVERS]->(c)" in c
     assert "MERGE (c)-[:COVERED_IN]->(b)" in c
-
-
-def test_find_book_result_by_label_is_prefix_scoped_and_bounded():
-    q = " ".join(FIND_BOOK_RESULT_BY_LABEL.split())
-    assert "STARTS WITH $book_prefix" in q
-    assert "r.name = $label" in q
-    assert "LIMIT 2" in q     # 2 not 1: two hits means ambiguous → caller must skip
 
 
 def test_notation_id_is_per_book_and_symbol_normalized():

@@ -78,8 +78,10 @@ def main() -> None:
             print("dry-run: nothing deleted")
             return
         if counts["books"] == 0:
-            print("book not found — nothing to do")
-            return
+            # Book node already gone (e.g. a prior wipe ran DELETE_SUBTREE but was
+            # interrupted before scoped-statement cleanup) — still clean up any scoped
+            # Definition/Result/Proof/Notation nodes left behind under this prefix.
+            print("book not found — deleting any orphaned scoped statements only")
         s.run(DELETE_SCOPED_STATEMENTS, prefix=prefix)
         s.run(DELETE_SUBTREE, book_id=args.book_id)
         orphans = s.run(DELETE_ORPHAN_CONCEPTS).consume().counters.nodes_deleted

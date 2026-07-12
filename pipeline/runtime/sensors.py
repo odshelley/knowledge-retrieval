@@ -59,7 +59,12 @@ def book_links_sensor(context: SensorEvaluationContext):
     requests = []
     for sha, cks in by_book.items():
         if sha not in linked and cks and cks <= done_chapters:
-            # run_key includes chapter count so a re-ingest with different chapters re-links
+            # `sha not in linked` (this asset's own materialization state) is what actually
+            # gates re-runs: once book_link_resolution has materialized for a book, this
+            # sensor never fires for it again, however chapters change, unless that
+            # materialization is wiped first (see the migration runbook). run_key only
+            # de-duplicates the RunRequest across sensor ticks for a book that isn't linked
+            # yet — it does not make a completed link resolution re-run itself.
             requests.append(RunRequest(partition_key=sha, run_key=f"link:{sha}:{len(cks)}"))
     if not requests:
         return SkipReason("no books awaiting link resolution")

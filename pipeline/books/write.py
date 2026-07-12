@@ -1,5 +1,6 @@
 """All book-pipeline Cypher + row builders. Structure writes here; statement (Definition/
-Result/Concept) writes appended for book_chapter_graph_write. Everything MERGE/idempotent."""
+Result/Concept) writes appended for book_chapter_graph_write. Cross-chapter DEPENDS_ON
+resolution lives in book_link_resolution (pass 2), not here. Everything MERGE/idempotent."""
 from __future__ import annotations
 
 WRITE_BOOK = """
@@ -93,11 +94,6 @@ UNWIND $rows AS row
   SET r.name = row.name, r.label = row.label, r.kind = row.kind,
       r.statement = row.statement, r.page = row.page
   MERGE (s)-[:STATES]->(r)
-"""
-
-FIND_BOOK_RESULT_BY_LABEL = """
-MATCH (r:Result) WHERE r.id STARTS WITH $book_prefix AND r.name = $label
-RETURN r.id AS id LIMIT 2
 """
 
 WRITE_BOOK_NOTATIONS = """

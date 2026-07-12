@@ -58,6 +58,22 @@ class LabelIndex:
         return candidates[0] if len(candidates) == 1 else None
 
 
+def resolve_proof_result_id(computed_id: str, label: str, known_ids: set[str],
+                            idx: LabelIndex) -> str | None:
+    """Decide the Result id to use for a PROVED_IN row.
+
+    Proof rows are keyed on the per-chunk raw statement, but merge pass 2 (duplicate-label
+    resolution across chunks) may have kept a different statement variant for the same
+    result, so `computed_id` — built from that raw statement — can name a Result that was
+    never actually written. Trust it only when it names a Result known to exist in this book
+    (`known_ids`, from FETCH_BOOK_RESULTS); otherwise fall back to resolving the row's
+    printed label against the book's label index. Returns None if neither succeeds, meaning
+    the row should be dropped (and counted/logged by the caller)."""
+    if computed_id in known_ids:
+        return computed_id
+    return idx.resolve(label)
+
+
 def unique_label_map(rows: list[dict]) -> dict[str, str]:
     """name -> id, EXCLUDING empty and duplicate names (mirrors
     pipeline.assets.graph_write.result_name_index's collision-safety rationale).
