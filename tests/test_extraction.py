@@ -180,3 +180,40 @@ def test_notation_and_proof_roundtrip():
 def test_notation_symbol_stripped():
     n = Notation(symbol_latex="  $\\mu$ ", meaning="a measure")
     assert n.symbol_latex == "$\\mu$"
+
+
+def _er(**kw):
+    return ExtractionResult(**kw)
+
+
+def test_merge_prefers_complete_statement_on_same_label():
+    truncated = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                              "statement": "Composition Lemma.",
+                              "statement_complete": False, "depends_on": ["Lemma 3.3"]}])
+    full = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                         "statement": "If $f$ is measurable and $g$ is Borel, then "
+                                      "$g \\circ f$ is measurable.",
+                         "statement_complete": True,
+                         "proof": {"sketch": "Preimages compose.", "technique": ""}}])
+    merged = merge_results([truncated, full])
+    assert len(merged.results) == 1
+    r = merged.results[0]
+    assert r.statement_complete is True
+    assert "Borel" in r.statement
+    assert r.depends_on == ["Lemma 3.3"]      # carried from the discarded variant
+    assert r.proof is not None                # carried from the kept variant
+
+
+def test_merge_keeps_distinct_unlabeled_results():
+    a = _er(results=[{"kind": "theorem", "statement": "Statement one."}])
+    b = _er(results=[{"kind": "theorem", "statement": "Statement two."}])
+    assert len(merge_results([a, b]).results) == 2
+
+
+def test_merge_dedups_notations_case_insensitive():
+    a = _er(notations=[{"symbol_latex": "$W_t$", "meaning": "Brownian motion"}])
+    b = _er(notations=[{"symbol_latex": "$w_T$", "meaning": "Brownian motion",
+                        "concept": "Brownian motion"}])
+    merged = merge_results([a, b])
+    assert len(merged.notations) == 1
+    assert merged.notations[0].concept == "Brownian motion"  # non-empty concept adopted

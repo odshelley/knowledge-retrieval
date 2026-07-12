@@ -255,11 +255,17 @@ def _is_notation_only(name: str) -> bool:
     return _has_math_signal(s) and not _has_three_letter_run(s)
 
 
+def _better_statement(a: Result, b: Result) -> Result:
+    """Between two same-label variants, prefer complete, then longer statement."""
+    if a.statement_complete != b.statement_complete:
+        return a if a.statement_complete else b
+    return a if len(a.statement) >= len(b.statement) else b
+
+
 def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     # Chunks overlap, so the same concept/definition/result is extracted from adjacent chunks.
     # Dedup all three by the same normalized key graph_write uses for ids, so overlap doesn't
-    # mint duplicate nodes. (Near-duplicate *partial* statements from a result split across a
-    # chunk boundary can still slip through — acceptable for v1, flagged in spec §14.)
+    # mint duplicate nodes.
     seen_c, concepts = set(), []
     for p in parts:
         for c in p.concepts:
@@ -279,6 +285,7 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
                 definitions.append(d)
             else:
                 _extend_unique(kept.defines, d.defines)
+                _extend_unique(kept.uses, d.uses)
     seen_r: dict[tuple[str, str], Result] = {}
     results = []
     for p in parts:
@@ -291,4 +298,47 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
             else:
                 _extend_unique(kept.uses, r.uses)
                 _extend_unique(kept.depends_on, r.depends_on)
-    return ExtractionResult(concepts=concepts, definitions=definitions, results=results)
+                if kept.proof is None:
+                    kept.proof = r.proof
+                kept.proof_present = kept.proof_present or r.proof_present
+
+    # Second pass: a statement split across a chunk boundary yields a truncated variant and a
+    # complete variant with the SAME printed label but different normalized statements. Collapse
+    # by (kind, label), keeping the better statement and unioning reference lists.
+    by_label: dict[tuple[str, str], Result] = {}
+    collapsed: list[Result] = []
+    for r in results:
+        if not r.name:
+            collapsed.append(r)
+            continue
+        k = (r.kind, r.name.strip().lower())
+        kept = by_label.get(k)
+        if kept is None:
+            by_label[k] = r
+            collapsed.append(r)
+        else:
+            winner = _better_statement(kept, r)
+            loser = r if winner is kept else kept
+            _extend_unique(winner.uses, loser.uses)
+            _extend_unique(winner.depends_on, loser.depends_on)
+            if winner.proof is None:
+                winner.proof = loser.proof
+            winner.proof_present = winner.proof_present or loser.proof_present
+            if winner is not kept:
+                by_label[k] = winner
+                collapsed[collapsed.index(kept)] = winner
+    results = collapsed
+
+    seen_n: dict[str, Notation] = {}
+    notations = []
+    for p in parts:
+        for n in p.notations:
+            k = n.symbol_latex.lower()
+            kept = seen_n.get(k)
+            if kept is None:
+                seen_n[k] = n
+                notations.append(n)
+            elif not kept.concept and n.concept:
+                kept.concept = n.concept
+    return ExtractionResult(concepts=concepts, definitions=definitions,
+                            results=results, notations=notations)
