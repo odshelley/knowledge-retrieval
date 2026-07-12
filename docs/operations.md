@@ -234,14 +234,20 @@ deploying):
 fly launch --no-deploy --copy-config -c docker/fly.toml   # accept the app name
 ```
 
-Set secrets (Neo4j creds, OpenAI key, and the `KG_TOKENS` allowlist — mint your own
-first with `scripts/issue_token.py`):
+Set secrets (Neo4j creds, OpenAI key, and the `KG_TOKENS` allowlist). Mint a
+token first, then paste its entry into `fly secrets set`:
 
 ```bash
+uv run python scripts/issue_token.py osian
+# copy BOTH printed lines: the token goes to the colleague/yourself (once),
+# the entry ("name:salt:hash") goes into KG_TOKENS below
+
 fly secrets set -c docker/fly.toml \
   KG_NEO4J_URI=... KG_NEO4J_USER=... KG_NEO4J_PASSWORD=... \
-  OPENAI_API_KEY=... KG_TOKENS="$(uv run python scripts/issue_token.py osian | sed -n 's/^KG_TOKENS entry[^:]*: *//p')"
+  OPENAI_API_KEY=... KG_TOKENS="<paste the name:salt:hash entry here>"
 ```
+
+Comma-append additional `name:salt:hash` entries to `KG_TOKENS` for more users.
 
 Then `fly deploy -c docker/fly.toml` and the smoke test above. Record the deployed
 URL (`https://<app>.fly.dev`) — the `kg` plugin's `.mcp.json` needs it.
