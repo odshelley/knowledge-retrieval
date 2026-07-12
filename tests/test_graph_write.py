@@ -111,3 +111,11 @@ def test_extracted_from_rows_recomputes_ids():
     drows, rrows = extracted_from_rows("paper1", defs, results, prov)
     assert drows == [{"node_id": def_id("paper1", "A process with..."), "chunk_id": "d:0"}]
     assert rrows == [{"node_id": result_id("paper1", "theorem", "Every martingale..."), "chunk_id": "d:3"}]
+
+
+def test_concept_rows_carry_description():
+    from pipeline.assets.graph_write import concept_rows
+    rows = concept_rows([{"name": "Rectified flow", "kind": "method",
+                          "description": "Straightens transport paths."}])
+    assert rows == [{"name": "Rectified flow", "tags": ["method"],
+                     "description": "Straightens transport paths."}]

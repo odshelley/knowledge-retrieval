@@ -125,3 +125,8 @@ def test_provenance_patterns_present():
     assert ("Chunk", "MENTIONS", "Concept") in PATTERNS
     assert ("Definition", "EXTRACTED_FROM", "Chunk") in PATTERNS
     assert ("Result", "EXTRACTED_FROM", "Chunk") in PATTERNS
+
+
+def test_concept_vector_index_in_init():
+    from pipeline.graph.schema import iter_init_statements
+    assert any("VECTOR INDEX concept_embedding" in s for s in iter_init_statements())

@@ -21,13 +21,15 @@ from pipeline.runtime.storage import EXTRACTED_BUCKET
 
 
 def resolved_concept_row(surface: str, canonical: str, kind: str, action: str,
-                         embedding: list[float]) -> dict:
+                         embedding: list[float], description: str = "") -> dict:
     """One resolved-concept record (one per original surface). `surface` is the extracted name used by
     graph_write to attach defines/uses edges; `name` is the canonical node key; `embedding` is the
     vector graph_write upserts keyed on the canonical name — non-None only on rows that CREATE a
-    canonical, None on merges (the resolver guarantees one vector per canonical, see resolve_concepts)."""
+    canonical, None on merges (the resolver guarantees one vector per canonical, see resolve_concepts).
+    `description` is the ORIGINAL surface concept's description (the canonical may come from another
+    paper, so it is not looked up from the canonical)."""
     return {"surface": surface, "name": canonical, "kind": kind,
-            "action": action, "embedding": embedding}
+            "action": action, "embedding": embedding, "description": description}
 
 
 @asset(partitions_def=documents_partitions_def(), deps=["extracted_graph"],
@@ -61,7 +63,9 @@ def resolved_entities(context) -> MaterializeResult:
         conn.commit()  # decision rows ONLY — no Neo4j, no embeddings, no alias_map (graph_write owns).
 
     payload["concepts"] = [
-        resolved_concept_row(r.surface, r.canonical, r.kind, r.action, r.embedding)
+        resolved_concept_row(
+            r.surface, r.canonical, r.kind, r.action, r.embedding,
+            description=next((c.get("description", "") for c in concepts if c["name"] == r.surface), ""))
         for r in resolutions
     ]
     payload["alias_registrations"] = [

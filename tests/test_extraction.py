@@ -155,3 +155,13 @@ def test_merge_results_with_provenance_tracks_chunk_ids():
     from pipeline.text_norm import normalize_statement
     assert prov["definitions"][normalize_statement("A process with...")] == ["doc:0"]
     assert prov["results"]["theorem|" + normalize_statement("Every martingale...")] == ["doc:0"]
+
+
+def test_concept_description_first_nonempty_wins_on_merge():
+    from pipeline.extraction.extraction import Concept, ExtractionResult, merge_results
+    p1 = ExtractionResult(concepts=[Concept(name="Rectified flow", description="")])
+    p2 = ExtractionResult(concepts=[Concept(
+        name="rectified flow", description="A method that straightens transport paths.")])
+    merged = merge_results([p1, p2])
+    assert len(merged.concepts) == 1
+    assert merged.concepts[0].description == "A method that straightens transport paths."

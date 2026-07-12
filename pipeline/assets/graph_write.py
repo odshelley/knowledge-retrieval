@@ -9,6 +9,7 @@ import json
 
 from dagster import MaterializeResult, MetadataValue, asset
 
+from pipeline.embedding import embed_texts
 from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.resolution.resolver import upsert_embedding, upsert_alias
 from pipeline.runtime.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET, TRIAGE_BUCKET
@@ -28,7 +29,8 @@ def result_id(paper_id: str, kind: str, statement: str) -> str:
 
 
 def concept_rows(concepts: list[dict]) -> list[dict]:
-    return [{"name": c["name"], "tags": [c["kind"]]} for c in concepts]
+    return [{"name": c["name"], "tags": [c["kind"]],
+             "description": c.get("description", "")} for c in concepts]
 
 
 def definition_rows(paper_id: str, defs: list[dict]) -> list[dict]:
@@ -159,6 +161,8 @@ MATCH (p:Paper {id:$paper_id})
 UNWIND $rows AS row
   MERGE (c:Concept {name: row.name})
   SET c.tags = row.tags
+  SET c.description = coalesce(c.description,
+        CASE WHEN row.description = '' THEN NULL ELSE row.description END)
   MERGE (p)-[:DISCUSSES]->(c)
   MERGE (c)-[:DERIVED_FROM]->(p)
 """
@@ -230,12 +234,25 @@ UNWIND $rows AS row
   MERGE (r)-[:EXTRACTED_FROM]->(ch)
 """
 
+CONCEPTS_NEEDING_EMBEDDING = """
+UNWIND $names AS name
+MATCH (c:Concept {name: name})
+WHERE c.embedding IS NULL AND c.description IS NOT NULL
+RETURN c.name AS name, c.description AS description
+"""
+
+SET_CONCEPT_EMBEDDINGS = """
+UNWIND $rows AS row
+MATCH (c:Concept {name: row.name})
+CALL db.create.setNodeVectorProperty(c, 'embedding', row.embedding)
+"""
+
 _MATCH_PENDING = ("ref_s2_id=%s OR ref_doi=%s OR ref_arxiv_id=%s OR ref_title_norm=%s")
 
 
 @asset(partitions_def=documents_partitions_def(),
        deps=["resolved_entities", "chunks", "triage_metadata"],
-       required_resource_keys={"minio", "neo4j_new", "postgres"})
+       required_resource_keys={"minio", "neo4j_new", "postgres", "openai"})
 def graph_write(context) -> MaterializeResult:
     key = context.partition_key
     s3 = context.resources.minio.get_client()
@@ -276,6 +293,18 @@ def graph_write(context) -> MaterializeResult:
         s.run(WRITE_MENTIONS, rows=m_rows)
         s.run(WRITE_DEF_PROVENANCE, rows=dprov_rows)
         s.run(WRITE_RESULT_PROVENANCE, rows=rprov_rows)
+
+        # Retrieval embedding: name+description, only for concepts that don't have one yet
+        # (first-wins, mirrors the description coalesce; keeps re-runs idempotent).
+        need = s.run(CONCEPTS_NEEDING_EMBEDDING,
+                     names=[c["name"] for c in crows]).data()
+        if need:
+            cfg = context.resources.openai
+            vecs = embed_texts(cfg.get_client(),
+                               [f"{r['name']}: {r['description']}" for r in need],
+                               model=cfg.embedding_model, timeout=cfg.request_timeout)
+            s.run(SET_CONCEPT_EMBEDDINGS,
+                  rows=[{"name": r["name"], "embedding": v} for r, v in zip(need, vecs)])
 
         with context.resources.postgres.connect() as conn:
             with conn.cursor() as cur:
@@ -329,4 +358,5 @@ def graph_write(context) -> MaterializeResult:
         "skipped_dep_results": MetadataValue.int(sk_dep),
         "mentions": MetadataValue.int(len(m_rows)),
         "extracted_from": MetadataValue.int(len(dprov_rows) + len(rprov_rows)),
+        "concept_embeddings": MetadataValue.int(len(need)),
     })

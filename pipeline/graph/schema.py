@@ -155,6 +155,15 @@ CREATE VECTOR INDEX chunk_embedding IF NOT EXISTS
 CREATE FULLTEXT INDEX chunk_text IF NOT EXISTS
   FOR (c:Chunk) ON EACH [c.text];
 
+CREATE VECTOR INDEX concept_embedding IF NOT EXISTS
+  FOR (c:Concept) ON c.embedding
+  OPTIONS {
+    indexConfig: {
+      `vector.dimensions`: 1536,
+      `vector.similarity_function`: 'cosine'
+    }
+  };
+
 CREATE CONSTRAINT definition_id IF NOT EXISTS
   FOR (d:Definition) REQUIRE d.id IS UNIQUE;
 

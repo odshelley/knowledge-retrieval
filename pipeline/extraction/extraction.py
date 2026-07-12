@@ -28,6 +28,12 @@ class Concept(BaseModel):
         description='"concept" for a theoretical idea, object, or framework; '
         '"method" for an implementable algorithm, technique, or procedure.',
     )
+    description: str = Field(
+        default="",
+        description="One sentence (at most ~40 words) saying what this concept IS, grounded "
+        "ONLY in this chunk's text — no outside knowledge. Plain prose; render math as LaTeX "
+        "in $...$. Empty string if the chunk gives no basis for a description.",
+    )
 
     @field_validator("name")
     @classmethod
@@ -201,14 +207,18 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     # Dedup all three by the same normalized key graph_write uses for ids, so overlap doesn't
     # mint duplicate nodes. (Near-duplicate *partial* statements from a result split across a
     # chunk boundary can still slip through — acceptable for v1, flagged in spec §14.)
-    seen_c, concepts = set(), []
+    seen_c: dict[str, Concept] = {}
+    concepts = []
     for p in parts:
         for c in p.concepts:
             if _is_notation_only(c.name):
                 continue  # bare notation is never a concept (backstop; primary fix is the prompt)
-            if c.name.lower() not in seen_c:
-                seen_c.add(c.name.lower())
+            kept = seen_c.get(c.name.lower())
+            if kept is None:
+                seen_c[c.name.lower()] = c
                 concepts.append(c)
+            elif not kept.description and c.description:
+                kept.description = c.description
     seen_d: dict[str, Definition] = {}
     definitions = []
     for p in parts:
