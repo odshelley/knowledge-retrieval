@@ -27,7 +27,7 @@ WHERE size(c.name) >= 4
 MATCH (p)-[:HAS_DOCUMENT]->(:Document)<-[:BELONGS_TO]-(ch:Chunk)
 WHERE toLower(ch.text) CONTAINS toLower(c.name)
 MERGE (ch)-[:MENTIONS]->(c)
-RETURN count(*) AS edges
+RETURN count(*) AS pairs
 """
 
 
@@ -40,11 +40,13 @@ def main() -> None:
         papers = [r["id"] for r in s.run(PAPERS)]
         total = 0
         for i, pid in enumerate(papers, 1):
-            edges = s.run(BACKFILL_ONE, paper_id=pid).single()["edges"]
-            total += edges
-            print(f"[{i}/{len(papers)}] {pid}: {edges} MENTIONS")
+            # MERGE preserves row cardinality, so this counts matched (chunk, concept) pairs,
+            # not edges newly created — an idempotent re-run reports the same totals.
+            pairs = s.run(BACKFILL_ONE, paper_id=pid).single()["pairs"]
+            total += pairs
+            print(f"[{i}/{len(papers)}] {pid}: {pairs} MENTIONS pairs")
     driver.close()
-    print(f"done: {total} MENTIONS edges")
+    print(f"done: {total} MENTIONS pairs (idempotent; totals repeat on re-run)")
 
 
 if __name__ == "__main__":

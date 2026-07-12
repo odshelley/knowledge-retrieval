@@ -70,7 +70,10 @@ def judge(client, system: str, payload: str) -> Judgment:
         response_format=Judgment,
         timeout=60,
     )
-    return resp.choices[0].message.parsed
+    parsed = resp.choices[0].message.parsed
+    if parsed is None:  # structured-output refusal — treat as a failed judgement, not a crash
+        return Judgment(verdict="fail", reason="judge returned no parsed output (refusal)")
+    return parsed
 
 
 def main() -> None:
@@ -86,8 +89,14 @@ def main() -> None:
     from openai import OpenAI
     oai = OpenAI(api_key=settings.openai_api_key)
 
-    rows = []
-    for item in bench:
+    out_dir = Path("evals/results")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d-%H%M%S")
+    # Persist incrementally: each completed item is appended to a JSONL immediately, so a crash
+    # or timeout partway through never discards the paid answer/judge calls already made.
+    jsonl_path = out_dir / f"{stamp}.jsonl"
+
+    def run_item(item: dict) -> dict:
         t0 = time.monotonic()
         gt_rows = graph.read(item["ground_truth_cypher"])
         retrieved = search_chunks_core(graph, item["question"], top_k=8, expand="local")
@@ -108,26 +117,47 @@ def main() -> None:
                         f"Question: {item['question']}\nGround truth: {gt}\n"
                         f"Expected behavior: {item['expected_behavior']}\n"
                         f"Generated answer: {answer}")
-        rows.append({
+        return {
             "id": item["id"], "question": item["question"],
+            "retrieval_answerable": item.get("retrieval_answerable", True),
+            "expected_behavior": item["expected_behavior"],
             "ground_truth": gt_rows, "answer": answer,
             "context_recall": recall.model_dump(),
             "answer_correctness": correct.model_dump(),
             "latency_s": round(time.monotonic() - t0, 1),
-        })
-        print(f"{item['id']:<20} recall={recall.verdict:<5} "
-              f"correct={correct.verdict:<5} {rows[-1]['latency_s']}s")
+        }
 
-    n = len(rows)
+    rows = []
+    with jsonl_path.open("w") as fh:
+        for item in bench:
+            try:
+                row = run_item(item)
+            except Exception as exc:  # keep going; one bad item must not sink the paid run
+                print(f"{item['id']:<20} ERROR {type(exc).__name__}: {exc}")
+                row = {"id": item["id"], "error": f"{type(exc).__name__}: {exc}"}
+            fh.write(json.dumps(row, default=str) + "\n")
+            fh.flush()
+            rows.append(row)
+            if "error" not in row:
+                print(f"{item['id']:<20} recall={row['context_recall']['verdict']:<5} "
+                      f"correct={row['answer_correctness']['verdict']:<5} {row['latency_s']}s")
+
+    ok = [r for r in rows if "error" not in r]
+    # Recall only over items whose answer can live in retrieved chunk text; aggregates, graph
+    # queries, and refuse items are not retrieval-answerable and would structurally cap recall.
+    recall_items = [r for r in ok if r["retrieval_answerable"]]
+    n = len(ok)
     summary = {
         "n": n,
-        "context_recall": sum(r["context_recall"]["verdict"] == "pass" for r in rows) / n,
-        "answer_correctness": sum(r["answer_correctness"]["verdict"] == "pass" for r in rows) / n,
+        "errors": len(rows) - n,
+        "context_recall": (
+            sum(r["context_recall"]["verdict"] == "pass" for r in recall_items) / len(recall_items)
+            if recall_items else None),
+        "context_recall_n": len(recall_items),
+        "answer_correctness": (
+            sum(r["answer_correctness"]["verdict"] == "pass" for r in ok) / n if n else None),
         "answer_model": ANSWER_MODEL, "judge_model": JUDGE_MODEL,
     }
-    out_dir = Path("evals/results")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y-%m-%d-%H%M%S")
     (out_dir / f"{stamp}.json").write_text(
         json.dumps({"summary": summary, "rows": rows}, indent=2, default=str))
     print(json.dumps(summary, indent=2))

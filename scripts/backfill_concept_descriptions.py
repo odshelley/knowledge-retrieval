@@ -88,17 +88,26 @@ def main() -> None:
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             futures = {pool.submit(describe_and_embed, client, DESCRIBE_MODEL, row): row
                        for row in rows}
-            for i, future in enumerate(as_completed(futures), 1):
-                row = futures[future]
-                try:
-                    desc, vec = future.result()
-                    # Neo4j session is not thread-safe: all writes happen here, main thread.
-                    s.run(SET_ONE, name=row["name"], description=desc, embedding=vec)
-                    processed += 1
-                    print(f"[{i}/{len(rows)}] {row['name']}: {desc[:70]}")
-                except Exception as e:
-                    skipped += 1
-                    print(f"SKIP {row['name']}: {e}")
+            try:
+                for i, future in enumerate(as_completed(futures), 1):
+                    row = futures[future]
+                    try:
+                        desc, vec = future.result()
+                        # Neo4j session is not thread-safe: all writes happen here, main thread.
+                        s.run(SET_ONE, name=row["name"], description=desc, embedding=vec)
+                        processed += 1
+                        print(f"[{i}/{len(rows)}] {row['name']}: {desc[:70]}")
+                    except Exception as e:
+                        skipped += 1
+                        print(f"SKIP {row['name']}: {e}")
+            except KeyboardInterrupt:
+                # Cancel queued (not-yet-started) OpenAI calls so an abort stops spending at once.
+                # Without cancel_futures the pool would drain every queued paid call on the way
+                # out. Descriptions already written are safe — SET_ONE autocommits per concept.
+                pool.shutdown(cancel_futures=True)  # drop the queued futures
+                print(f"\ninterrupted — cancelled pending calls; "
+                      f"processed={processed} skipped={skipped}")
+                raise SystemExit(130)
     driver.close()
     print(f"processed={processed} skipped={skipped}")
 

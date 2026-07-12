@@ -213,6 +213,20 @@ UNWIND $rows AS row
   MERGE (r1)-[:DEPENDS_ON]->(r2)
 """
 
+# Provenance edges are keyed to positional chunk ids ({doc}:{i}). On re-materialization after a
+# re-chunk, WRITE_CHUNKS overwrites a reused chunk id's text in place, but MERGE-only provenance
+# writes would leave the previous run's MENTIONS/EXTRACTED_FROM attached to that now-different
+# text. Clear this document's provenance edges first so each run's writes are authoritative.
+CLEAR_DOC_PROVENANCE = """
+MATCH (d:Document {id: $doc_id})<-[:BELONGS_TO]-(ch:Chunk)
+CALL {
+  WITH ch
+  OPTIONAL MATCH (ch)-[m:MENTIONS]->()
+  OPTIONAL MATCH ()-[e:EXTRACTED_FROM]->(ch)
+  DELETE m, e
+}
+"""
+
 WRITE_MENTIONS = """
 UNWIND $rows AS row
   MATCH (ch:Chunk {id: row.chunk_id})
@@ -290,14 +304,18 @@ def graph_write(context) -> MaterializeResult:
         provenance = resolved.get("provenance", {})  # absent on pre-change artifacts
         m_rows, sk_mention = mention_rows(provenance, surface_to_canon)
         dprov_rows, rprov_rows = extracted_from_rows(paper_id, raw_defs, raw_results, provenance)
+        # Drop this document's stale provenance edges before rewriting (re-materialization safety).
+        s.run(CLEAR_DOC_PROVENANCE, doc_id=key)
         s.run(WRITE_MENTIONS, rows=m_rows)
         s.run(WRITE_DEF_PROVENANCE, rows=dprov_rows)
         s.run(WRITE_RESULT_PROVENANCE, rows=rprov_rows)
 
         # Retrieval embedding: name+description, only for concepts that don't have one yet
         # (first-wins, mirrors the description coalesce; keeps re-runs idempotent).
+        # Dedup names: crows carry one row per surface, so two surfaces resolving to the same
+        # canonical would otherwise embed the identical text twice.
         need = s.run(CONCEPTS_NEEDING_EMBEDDING,
-                     names=[c["name"] for c in crows]).data()
+                     names=sorted({c["name"] for c in crows})).data()
         if need:
             cfg = context.resources.openai
             vecs = embed_texts(cfg.get_client(),
@@ -357,6 +375,7 @@ def graph_write(context) -> MaterializeResult:
         "skipped_use_concepts": MetadataValue.int(sk_use),
         "skipped_dep_results": MetadataValue.int(sk_dep),
         "mentions": MetadataValue.int(len(m_rows)),
+        "skipped_mention_surfaces": MetadataValue.int(sk_mention),
         "extracted_from": MetadataValue.int(len(dprov_rows) + len(rprov_rows)),
         "concept_embeddings": MetadataValue.int(len(need)),
     })

@@ -15,8 +15,13 @@ def search_chunks_core(graph: GraphClient, query: str, top_k: int = 8,
     k = top_k * 4 if paper_id else top_k
     vec_hits = graph.read(q.VECTOR_SEARCH, k=k, top_k=top_k,
                           embedding=emb, paper_id=paper_id)
-    ft_hits = graph.read(q.FULLTEXT_SEARCH, q=q.lucene_escape(query),
-                         paper_id=paper_id, top_k=top_k)
+    # The full-text side is best-effort: a Lucene ParseException on an odd query must not sink
+    # the whole search and discard the vector hits already in hand.
+    try:
+        ft_hits = graph.read(q.FULLTEXT_SEARCH, q=q.lucene_escape(query),
+                             paper_id=paper_id, top_k=top_k)
+    except Exception:
+        ft_hits = []
     hits = q.merge_chunk_hits(vec_hits, ft_hits, top_k)
     out: dict = {"chunks": hits}
     paper_ids = sorted({h["paper_id"] for h in hits})
