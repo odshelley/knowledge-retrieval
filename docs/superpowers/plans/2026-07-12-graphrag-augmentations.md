@@ -4,7 +4,7 @@
 
 **Goal:** Add the five augmentations agreed after the Essential-GraphRAG comparison: (1) hybrid keyword+vector chunk search, (2) a Cypher-ground-truth eval benchmark, (3) chunk-level provenance edges, (4) concept descriptions with an entity vector index and a `search_concepts` tool, (5) a guarded read-only `run_cypher` escape hatch.
 
-**Architecture:** Builder-side changes (schema, extraction, graph_write, backfill scripts) land on a branch off `main`. Server-side changes (queries, tools, eval harness) land on a branch off the `kg-plugin-spec` worktree branch, because `server/` does not exist on `main`. Nothing changes the single-writer invariant: `graph_write` stays the sole pipeline writer; backfill scripts are manual, run-once, and documented as such.
+**Architecture:** All changes (builder: schema, extraction, graph_write, backfill scripts; server: queries, tools, eval harness) land on ONE branch off `main` — the kg v1 MCP server merged to main in PR #14 (2026-07-12), so `server/` and `tests/server/` now live there. Nothing changes the single-writer invariant: `graph_write` stays the sole pipeline writer; backfill scripts are manual, run-once, and documented as such.
 
 **Tech Stack:** Python 3.12 / uv, Dagster, Neo4j Aura (Cypher, native vector + full-text indexes), Postgres+pgvector, OpenAI SDK (structured outputs via `.parse()`), FastMCP, pytest.
 
@@ -15,8 +15,7 @@
 - NEVER run `scripts/reset_graph.py` (wipes the live Aura DB). `scripts/init_neo4j.py` is safe: every statement is `IF NOT EXISTS`.
 - Neo4j here is live Aura (credentials via `.env`). Integration tests are gated behind `--run-integration`; plain `pytest` must pass with no network.
 - `graph_write` is the SOLE pipeline writer of the derived graph (spec §5.9). Backfill scripts in this plan write to Neo4j but are manual one-off scripts run while the Dagster daily schedule is idle; say so in each script's docstring.
-- Builder tasks (1, 4, 5a, 5c): branch `feat/graphrag-augmentations` off `origin/main` in the main checkout `~/Projects/knowledge-retrieval`.
-- Server tasks (2, 3, 5b, 6): run inside `~/Projects/knowledge-retrieval/.claude/worktrees/kg-plugin-spec/`. First run `git branch --show-current` there, then create `feat/server-augmentations` off that branch. Do NOT commit onto the kg-plugin-spec branch itself; it has an open PR.
+- All tasks run on ONE branch, `feat/graphrag-augmentations`, off `origin/main` (which includes the kg v1 server merge, PR #14). Execute tasks in rollout order — later tasks edit files earlier tasks touched.
 - Task 1 must be deployed to the live DB (index exists) before Task 2's integration test or any production use of hybrid search.
 - The MCP server deploys to Fly.io (`kg-graph.fly.dev`); redeploy (`fly deploy` from the worktree) is a human/ops step, note it in PR descriptions rather than running it.
 - Commit messages: conventional prefixes (`feat:`, `fix:`, `test:`, `docs:`) matching repo history.
@@ -218,13 +217,13 @@ git commit -m "feat(server): hybrid vector+fulltext search_chunks with normalize
 
 ---
 
-### Task 3: Eval benchmark with Cypher ground truth (server worktree)
+### Task 3: Eval benchmark with Cypher ground truth (server)
 
 **Files:**
 - Create: `evals/benchmark.json`
 - Create: `evals/README.md`
 - Create: `server/retrieve.py`
-- Create: `scripts/run_eval.py` (in the worktree checkout)
+- Create: `scripts/run_eval.py`
 - Modify: `server/tools.py` (delegate search_chunks core to retrieve.py)
 - Test: `tests/server/test_retrieve.py`
 
@@ -1029,7 +1028,7 @@ git commit -m "feat(concepts): one-line descriptions at extraction; description 
 
 ---
 
-### Task 5b: `search_concepts` MCP tool (server worktree)
+### Task 5b: `search_concepts` MCP tool (server)
 
 **Files:**
 - Modify: `server/queries.py` (SEARCH_CONCEPTS; extend GET_CONCEPT with MENTIONS chunks)
@@ -1221,7 +1220,7 @@ git commit -m "feat(concepts): backfill descriptions + embeddings for pre-existi
 
 ---
 
-### Task 6: `run_cypher` + `get_schema` tools (server worktree)
+### Task 6: `run_cypher` + `get_schema` tools (server)
 
 **Files:**
 - Modify: `server/graph.py` (read_limited)
@@ -1360,7 +1359,7 @@ git commit -m "feat(server): get_schema + guarded read-only run_cypher escape ha
 1. Task 1 (index live) → Task 2 → Task 3. Run `run_eval.py` — this is the **baseline** record.
 2. Task 4 (+ backfill) → Task 5a → 5c → 5b. Re-run `run_eval.py`; recall on symbol/name questions should rise.
 3. Task 6. Add 2–3 aggregation questions to the benchmark that only run_cypher can serve; re-run.
-4. Ops (human): `fly deploy` from the server worktree; update `~/Projects/kg` ask-skill docs to mention `search_concepts`, `get_schema`, `run_cypher` (separate repo, three-line change, out of this plan's scope).
+4. Ops (human): `fly deploy` from the repo root once merged; update `~/Projects/kg` ask-skill docs to mention `search_concepts`, `get_schema`, `run_cypher` (separate repo, three-line change, out of this plan's scope).
 
 ## Out of scope (deliberately)
 
