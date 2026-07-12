@@ -29,6 +29,10 @@ dev = [
     "ipykernel>=6.29",
     "jupyterlab>=4.3",
 ]
+server = [
+    "mcp>=1.10",
+    "uvicorn>=0.30",
+]
 
 [tool.uv]
 package = false
@@ -38,7 +42,11 @@ testpaths = ["tests"]
 markers = [
     "integration: end-to-end against real services; skipped unless --run-integration",
 ]
-addopts = "-m 'not integration'"
+# NOTE: do not add `-m "not integration"` here — that deselects integration tests
+# unconditionally, before tests/conftest.py's --run-integration gate ever runs,
+# permanently disabling `--run-integration` for the whole suite. conftest.py's
+# pytest_collection_modifyitems already skips integration-marked tests by default
+# and un-skips them when --run-integration is passed.
 
 [tool.ruff]
 line-length = 100

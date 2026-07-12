@@ -1,0 +1,14 @@
+# kg MCP server — deliberately does NOT install the pipeline's heavy deps
+# (dagster/docling). server/ imports only pipeline.embedding, which needs nothing
+# beyond the openai client. Keep these pins aligned with [project.optional-dependencies]
+# and the neo4j/openai floors in pyproject.toml.
+FROM python:3.12-slim
+WORKDIR /app
+RUN pip install --no-cache-dir "mcp>=1.10" "uvicorn>=0.30" "neo4j>=5.27" \
+    "openai>=1.55" "python-dotenv>=1.0"
+COPY pipeline/__init__.py pipeline/embedding.py pipeline/
+COPY server/ server/
+RUN useradd --create-home --uid 10001 kgserver
+USER kgserver
+EXPOSE 8080
+CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8080"]
