@@ -64,15 +64,19 @@ def book_chapter_extraction(context) -> MaterializeResult:
                                                 chapter, section, row["text"]))
             context.log.info(
                 f"extraction: chunk {i + 1}/{n} done in {time.monotonic() - t0:.1f}s")
-            per_section.setdefault(row["section_id"], []).append((er, row["page_start"]))
+            per_section.setdefault(row["section_id"], []).append(
+                (er, row["page_start"], row["position"]))
 
         section_outputs, section_merges = [], []
-        for sec_id, pairs in per_section.items():
-            merged = merge_results([er for er, _ in pairs])
+        for sec_id, triples in per_section.items():
+            merged = merge_results([er for er, _, _ in triples])
             section_merges.append(merged)
-            defs, results = attach_pages(merged, pairs)
+            defs, results, proof_rows = attach_pages(merged, triples)
             section_outputs.append({"section_id": sec_id,
-                                    "definitions": defs, "results": results})
+                                    "definitions": defs, "results": results,
+                                    "proof_chunks": proof_rows,
+                                    "notations": [nt.model_dump()
+                                                  for nt in merged.notations]})
     except (json.JSONDecodeError, ValueError, KeyError, IndexError, AttributeError) as exc:
         raise QuarantineError(f"{pkey}: extraction returned unparseable/invalid JSON") from exc
 

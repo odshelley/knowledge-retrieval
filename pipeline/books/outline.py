@@ -107,13 +107,15 @@ def choose_toc(toc_entries: list[TocEntry], pages: list[str]) -> list[TocEntry]:
     return detect_headings(pages)
 
 
-def structure_artifact(book_id: str, sha: str, chapters: list[ChapterNode]) -> dict:
+def structure_artifact(book_id: str, sha: str, chapters: list[ChapterNode],
+                       roles: dict[int, str] | None = None) -> dict:
     out = {"book_id": book_id, "chapters": []}
     for ch in chapters:
         out["chapters"].append({
             "id": chapter_node_id(book_id, ch.number),
             "key": f"{sha}:ch{ch.number:02d}",
             "number": ch.number, "title": ch.title,
+            "role": (roles or {}).get(ch.number, "content"),
             "page_start": ch.page_start, "page_end": ch.page_end,
             "sections": [{
                 "id": section_node_id(book_id, ch.number, s_i),
