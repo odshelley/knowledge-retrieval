@@ -35,6 +35,40 @@ class Concept(BaseModel):
         return v.strip()
 
 
+class Notation(BaseModel):
+    symbol_latex: str = Field(
+        description="The symbol or abbreviation being introduced, rendered as LaTeX in $...$ "
+        'when mathematical (e.g. "$W_t$", "$\\sigma(\\mathcal{C})$") or verbatim when textual '
+        '(e.g. "a.e.", "DF"). Only symbols the text INTRODUCES here ("Let X denote...", '
+        '"we write ... for ..."), never symbols merely used.'
+    )
+    meaning: str = Field(
+        description="What the symbol denotes, in one short phrase. LaTeX for any math."
+    )
+    concept: str = Field(
+        default="",
+        description="If the symbol denotes a concept you extracted in this same response, "
+        "its exact name (e.g. \"Brownian motion\" for $W_t$). Empty otherwise.",
+    )
+
+    @field_validator("symbol_latex", "meaning")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return v.strip()
+
+
+class ProofSketch(BaseModel):
+    sketch: str = Field(
+        description="2-4 sentence sketch of the proof: overall strategy and the key steps. "
+        "NEVER a transcription of the proof text. LaTeX for any math."
+    )
+    technique: str = Field(
+        default="",
+        description='The main technique in a few words, e.g. "monotone-class argument", '
+        '"Borel-Cantelli", "truncation + dominated convergence". Empty if unclear.',
+    )
+
+
 class Definition(BaseModel):
     term: str = Field(
         description="The exact term being defined. If it contains mathematical notation, render it "
@@ -55,6 +89,11 @@ class Definition(BaseModel):
         default_factory=list,
         description="Concept name(s), from the concepts you extract in this same response, "
         "that this definition introduces. Usually exactly one. Leave empty if unsure.",
+    )
+    uses: list[str] = Field(
+        default_factory=list,
+        description="Names of concepts (from this same response) that the definition's "
+        "statement relies on. Leave empty if none or unsure.",
     )
 
     @field_validator("term")
@@ -85,8 +124,24 @@ class Result(BaseModel):
     )
     depends_on: list[str] = Field(
         default_factory=list,
-        description='Labels of OTHER results this result depends on, e.g. ["Lemma 2.4"]. '
-        "Use the exact result labels as they appear. Leave empty if none or unsure.",
+        description='Labels of OTHER results this result depends on or is proved from, as '
+        'printed in the text, e.g. ["Lemma 2.4", "Theorem 6.13"]. The referenced result may '
+        "be anywhere in the source — earlier or later chapters included; you do NOT need to "
+        "have extracted it. Leave empty if none.",
+    )
+    proof: ProofSketch | None = Field(
+        default=None,
+        description="If the proof (or its beginning) is visible in this chunk, a short "
+        "sketch of it. null when no proof text is visible.",
+    )
+    proof_present: bool = Field(
+        default=False,
+        description="true iff proof text for THIS result appears in this chunk.",
+    )
+    statement_complete: bool = Field(
+        default=True,
+        description="false iff the statement is cut off by the end of the chunk and you "
+        "could only extract part of it.",
     )
 
     @field_validator("name")
@@ -109,6 +164,10 @@ class ExtractionResult(BaseModel):
     results: list[Result] = Field(
         default_factory=list,
         description="Theorems, lemmas, propositions, and corollaries stated in the chunk.",
+    )
+    notations: list[Notation] = Field(
+        default_factory=list,
+        description="Symbols and abbreviations INTRODUCED in the chunk (not merely used).",
     )
 
 

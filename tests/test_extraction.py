@@ -139,3 +139,44 @@ def test_system_prompt_states_both_rules():
     from pipeline.extraction.extraction import SYSTEM_PROMPT
     assert "LaTeX" in SYSTEM_PROMPT
     assert "Brownian motion" in SYSTEM_PROMPT  # the concept-vs-notation few-shot
+
+
+from pipeline.extraction.extraction import (
+    ExtractionResult, Notation, ProofSketch, parse_extraction,
+)
+
+
+def test_v1_payload_still_validates():
+    er = parse_extraction({
+        "concepts": [{"name": "Brownian motion", "kind": "concept"}],
+        "definitions": [{"term": "martingale", "statement": "A process such that..."}],
+        "results": [{"kind": "theorem", "statement": "Every $L^2$ martingale converges."}],
+    })
+    assert er.notations == []
+    assert er.results[0].proof is None
+    assert er.results[0].proof_present is False
+    assert er.results[0].statement_complete is True
+    assert er.definitions[0].uses == []
+
+
+def test_notation_and_proof_roundtrip():
+    er = ExtractionResult(
+        notations=[Notation(symbol_latex="$W_t$", meaning="standard Brownian motion",
+                            concept="Brownian motion")],
+        results=[{
+            "kind": "theorem", "name": "9.7. Theorem.",
+            "statement": "If $X_n \\to X$ a.s. and $|X_n| \\le Y$...",
+            "proof": {"sketch": "Apply Fatou to $Y \\pm X_n$.", "technique": "Fatou's lemma"},
+            "proof_present": True, "statement_complete": True,
+        }],
+    )
+    dumped = er.model_dump()
+    assert dumped["notations"][0]["symbol_latex"] == "$W_t$"
+    back = ExtractionResult.model_validate(dumped)
+    assert isinstance(back.results[0].proof, ProofSketch)
+    assert back.results[0].proof.technique == "Fatou's lemma"
+
+
+def test_notation_symbol_stripped():
+    n = Notation(symbol_latex="  $\\mu$ ", meaning="a measure")
+    assert n.symbol_latex == "$\\mu$"
