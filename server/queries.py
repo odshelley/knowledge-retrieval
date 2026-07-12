@@ -181,8 +181,22 @@ OPTIONAL MATCH (p2)-[:DISCUSSES]->(other:Concept)
 WHERE other.name <> c.name
 WITH c, definitions, papers, other.name AS oname, count(DISTINCT p2) AS shared
 ORDER BY shared DESC
-RETURN c.name AS name, c.tags AS tags, definitions, papers,
-       collect(oname)[..10] AS related_concepts
+WITH c, definitions, papers, collect(oname)[..10] AS related_concepts
+OPTIONAL MATCH (ch:Chunk)-[:MENTIONS]->(c)
+WITH c, definitions, papers, related_concepts,
+     collect(DISTINCT {chunk_id: ch.id, position: ch.position,
+                       text: left(ch.text, 600)})[..5] AS supporting_chunks
+RETURN c.name AS name, c.tags AS tags, c.description AS description,
+       definitions, papers, related_concepts, supporting_chunks
+"""
+
+SEARCH_CONCEPTS = """
+CALL db.index.vector.queryNodes('concept_embedding', $k, $embedding)
+YIELD node, score
+RETURN node.name AS name, node.description AS description,
+       node.tags AS tags, score
+ORDER BY score DESC
+LIMIT $top_k
 """
 
 GET_RESULTS = """

@@ -120,3 +120,8 @@ def test_merge_chunk_hits_handles_empty_sides():
     assert q.merge_chunk_hits([], [], 5) == []
     only_vec = q.merge_chunk_hits([_row("a", 0.8)], [], 5)
     assert only_vec[0]["score"] == 1.0
+
+
+def test_search_concepts_query_targets_concept_index():
+    assert "concept_embedding" in q.SEARCH_CONCEPTS
+    assert "supporting_chunks" in q.GET_CONCEPT

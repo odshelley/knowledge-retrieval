@@ -1,4 +1,4 @@
-"""The 8 typed read-only MCP tools. Synthesis is the caller's job; these only retrieve."""
+"""The 9 typed read-only MCP tools. Synthesis is the caller's job; these only retrieve."""
 from __future__ import annotations
 
 import json
@@ -53,6 +53,15 @@ def build_mcp(graph: GraphClient) -> FastMCP:
         discuss it, and co-discussed related concepts."""
         rows = graph.read(q.GET_CONCEPT, name=name)
         return rows[0] if rows else {"found": False, "name": name}
+
+    @mcp.tool()
+    def search_concepts(query: str, top_k: int = 8) -> dict:
+        """Vector-search Concept nodes by their descriptions (entity-anchored entry point).
+        Follow up with get_concept(name) for definitions, papers, and supporting chunks."""
+        top_k = q.validate_top_k(top_k)
+        hits = graph.read(q.SEARCH_CONCEPTS, k=top_k * 2, top_k=top_k,
+                          embedding=graph.embed(query))
+        return {"concepts": hits}
 
     @mcp.tool()
     def get_results(concept: str | None = None, paper_id: str | None = None,
