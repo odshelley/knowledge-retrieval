@@ -305,6 +305,9 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
     # Second pass: a statement split across a chunk boundary yields a truncated variant and a
     # complete variant with the SAME printed label but different normalized statements. Collapse
     # by (kind, label), keeping the better statement and unioning reference lists.
+    # Pass 2's collapsed.index(kept) replacement relies on pass 1 guaranteeing at most one
+    # surviving Result per (kind, normalized statement), so value-equality lookup cannot match
+    # the wrong element; statements are never mutated in pass 2.
     by_label: dict[tuple[str, str], Result] = {}
     collapsed: list[Result] = []
     for r in results:

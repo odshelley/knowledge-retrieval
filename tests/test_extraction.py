@@ -217,3 +217,22 @@ def test_merge_dedups_notations_case_insensitive():
     merged = merge_results([a, b])
     assert len(merged.notations) == 1
     assert merged.notations[0].concept == "Brownian motion"  # non-empty concept adopted
+
+
+def test_merge_three_way_same_label_collision():
+    v1 = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                       "statement": "Composition Lemma.", "statement_complete": False,
+                       "depends_on": ["Lemma 3.2"]}])
+    v2 = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                       "statement": "If $f$ is measurable then part of", "statement_complete": False,
+                       "uses": ["measurable function"]}])
+    v3 = _er(results=[{"kind": "lemma", "name": "3.4. Composition Lemma.",
+                       "statement": "If $f$ is measurable and $g$ is Borel, then $g \\circ f$ is measurable.",
+                       "statement_complete": True}])
+    merged = merge_results([v1, v2, v3])
+    assert len(merged.results) == 1
+    r = merged.results[0]
+    assert r.statement_complete is True
+    assert "Borel" in r.statement
+    assert r.depends_on == ["Lemma 3.2"]
+    assert r.uses == ["measurable function"]
