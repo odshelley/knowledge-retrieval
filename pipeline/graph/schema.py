@@ -97,6 +97,7 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Paper",      "STATES",       "Definition"),
     ("Paper",      "STATES",       "Result"),
     ("Definition", "DEFINES",      "Concept"),
+    ("Definition", "USES",         "Concept"),
     ("Result",     "USES",         "Concept"),
     ("Result",     "DEPENDS_ON",   "Result"),
     ("Paper",      "HAS_SUMMARY",  "Summary"),

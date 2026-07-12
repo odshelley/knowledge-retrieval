@@ -44,3 +44,23 @@ def book_chapters_sensor(context: SensorEvaluationContext):
     if not requests:
         return SkipReason("no chapters awaiting extraction")
     return SensorResult(run_requests=requests)
+
+
+@sensor(job_name="resolve_book_links", minimum_interval_seconds=120)
+def book_links_sensor(context: SensorEvaluationContext):
+    instance = context.instance
+    done_chapters = set(
+        instance.get_materialized_partitions(AssetKey("book_chapter_graph_write")))
+    linked = set(instance.get_materialized_partitions(AssetKey("book_link_resolution")))
+    all_chapter_keys = instance.get_dynamic_partitions(BOOK_CHAPTERS_PARTITION)
+    by_book: dict[str, set[str]] = {}
+    for ck in all_chapter_keys:
+        by_book.setdefault(ck.rpartition(":ch")[0], set()).add(ck)
+    requests = []
+    for sha, cks in by_book.items():
+        if sha not in linked and cks and cks <= done_chapters:
+            # run_key includes chapter count so a re-ingest with different chapters re-links
+            requests.append(RunRequest(partition_key=sha, run_key=f"link:{sha}:{len(cks)}"))
+    if not requests:
+        return SkipReason("no books awaiting link resolution")
+    return SensorResult(run_requests=requests)

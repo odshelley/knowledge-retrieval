@@ -120,6 +120,7 @@ def test_proof_pipeline_patterns_present():
         ("Notation", "DENOTES", "Concept"),
         ("Result", "HAS_PROOF", "Proof"),
         ("Result", "PROVED_IN", "Chunk"),
+        ("Definition", "USES", "Concept"),
     ]
     for triple in expected:
         assert triple in PATTERNS
