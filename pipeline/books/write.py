@@ -153,9 +153,9 @@ def split_depends_on(owner: str, results: list[dict],
     return resolved, unresolved
 
 
-def book_notation_rows(book_id: str, section_id: str, notations: list[dict],
+def book_notation_rows(section_id: str, notations: list[dict],
                        surface_to_canon: dict[str, str]) -> list[dict]:
-    return [{"id": notation_node_id(book_id, n["symbol_latex"]),
+    return [{"id": notation_node_id(section_id, n["symbol_latex"]),
              "symbol_latex": n["symbol_latex"], "meaning": n["meaning"],
              "concept": surface_to_canon.get(n.get("concept", "").lower()) or None,
              "section_id": section_id} for n in notations]

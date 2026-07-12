@@ -125,6 +125,21 @@ Williams identifiers used below:
 7. **Paper pipeline still green:** `uv run pytest -q`, and confirm the next paper ingestion run
    succeeds end-to-end (the shared prompt/schema changes apply to papers too).
 
+## Notation id format change (2026-07-12, post-#16 fix)
+
+Notation ids are now section-scoped (`{book}:chXX:sYY:not:{hash}`), not book-scoped
+(`{book}:not:{hash}`): the old format let a symbol reintroduced with a new meaning in a later
+chapter silently overwrite the earlier node's `meaning`. A full `wipe_book` + re-ingest (the
+procedure above) handles this automatically. If a book was already ingested and you only want
+to purge stale old-format nodes without a full re-run:
+
+```cypher
+MATCH (n:Notation) WHERE n.id STARTS WITH "title:probability with martingales:not:"
+DETACH DELETE n;   // old format only — new ids have :chXX:sYY: before :not:
+```
+
+then re-materialize the book's `book_chapter_graph_write` partitions.
+
 ## Coordination note (2026-07-12)
 
 PR #15 (`plan/graphrag-augmentations`, other session) plans an eval baseline and two LLM

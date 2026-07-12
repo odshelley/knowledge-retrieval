@@ -1,3 +1,5 @@
+import pytest
+
 from server.auth import RateLimiter, hash_token, parse_tokens, verify_token
 
 
@@ -9,6 +11,30 @@ def test_parse_tokens_roundtrip():
 def test_parse_tokens_empty_and_whitespace():
     assert parse_tokens("") == {}
     assert parse_tokens(" ") == {}
+
+
+@pytest.mark.parametrize("raw", [
+    "osian:ab12",                      # missing hash
+    "osian:ab12:deadbeef:extra",       # too many fields
+    "osian:ab12:deadbeef,ffion:cd34",  # second entry malformed
+    ":ab12:deadbeef",                  # empty name
+    "osian::deadbeef",                 # empty salt
+    "osian:ab12:",                     # empty hash
+])
+def test_parse_tokens_rejects_malformed_with_clear_error(raw):
+    with pytest.raises(ValueError, match="KG_TOKENS"):
+        parse_tokens(raw)
+
+
+def test_parse_tokens_error_names_entry_position_not_secret():
+    with pytest.raises(ValueError, match="entry 2") as exc:
+        parse_tokens("osian:ab12:deadbeef,ffion:cd34:cafebabe,broken:oops")
+    assert "oops" not in str(exc.value)  # never echo potential secret material
+
+
+def test_parse_tokens_rejects_duplicate_names():
+    with pytest.raises(ValueError, match="duplicate"):
+        parse_tokens("osian:ab12:deadbeef,osian:cd34:cafebabe")
 
 
 def test_verify_token_accepts_valid():
