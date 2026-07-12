@@ -13,8 +13,9 @@ from pipeline.assets.graph_write import (
     concept_rows, defines_edge_rows, result_name_index, uses_edge_rows,
 )
 from pipeline.books.write import (
-    FIND_BOOK_RESULT_BY_LABEL, WRITE_BOOK_CONCEPTS, WRITE_BOOK_DEFINITIONS, WRITE_BOOK_RESULTS,
-    book_definition_rows, book_result_rows, split_depends_on,
+    FIND_BOOK_RESULT_BY_LABEL, WRITE_BOOK_CONCEPTS, WRITE_BOOK_DEFINITIONS, WRITE_BOOK_NOTATIONS,
+    WRITE_BOOK_PROOFS, WRITE_BOOK_RESULTS, WRITE_DEF_USES, book_definition_rows,
+    book_notation_rows, book_proof_rows, book_result_rows, def_uses_rows, split_depends_on,
 )
 from pipeline.resolution.resolver import upsert_alias, upsert_embedding
 from pipeline.runtime.partitions import book_chapters_partitions_def
@@ -36,6 +37,7 @@ def book_chapter_graph_write(context) -> MaterializeResult:
     surface_to_canon = {c.get("surface", c["name"]).lower(): c["name"] for c in concepts}
 
     drows, rrows, raw_results = [], [], []
+    nrows, prows, du_rows = [], [], []
     sk_def = sk_use = 0
     def_edges, use_edges = [], []
     for sec in payload.get("sections", []):
@@ -49,6 +51,10 @@ def book_chapter_graph_write(context) -> MaterializeResult:
         use_edges.extend(ue)
         sk_def += sd
         sk_use += su
+        nrows.extend(book_notation_rows(book_id, sid, sec.get("notations", []),
+                                        surface_to_canon))
+        prows.extend(book_proof_rows(owner, sid, sec.get("results", [])))
+        du_rows.extend(def_uses_rows(owner, sec.get("definitions", []), surface_to_canon))
 
     name_index = result_name_index(rrows)
     dep_edges, unresolved = split_depends_on(owner, raw_results, name_index)
@@ -62,6 +68,9 @@ def book_chapter_graph_write(context) -> MaterializeResult:
         s.run(WRITE_DEFINES, rows=def_edges)
         s.run(WRITE_RESULT_USES, rows=use_edges)
         s.run(WRITE_RESULT_DEPENDS, rows=dep_edges)
+        s.run(WRITE_BOOK_NOTATIONS, rows=nrows)
+        s.run(WRITE_BOOK_PROOFS, rows=prows)
+        s.run(WRITE_DEF_USES, rows=du_rows)
         # cross-chapter back-references: label lookup scoped to this book's Result ids
         cross_rows = []
         for u in unresolved:
@@ -95,4 +104,6 @@ def book_chapter_graph_write(context) -> MaterializeResult:
         "depends_on": MetadataValue.int(len(dep_edges) + cross_linked),
         "depends_on_cross_chapter": MetadataValue.int(cross_linked),
         "skipped_refs": MetadataValue.int(sk_def + sk_use + cross_skipped),
+        "notations": MetadataValue.int(len(nrows)),
+        "proofs": MetadataValue.int(len(prows)),
     })

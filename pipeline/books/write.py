@@ -66,6 +66,7 @@ def section_rows(structure: dict) -> list[dict]:
 
 
 from pipeline.assets.graph_write import def_id, result_id  # noqa: E402  (chapter-local ids)
+from pipeline.books.identity import notation_node_id  # noqa: E402  (per-book notation ids)
 
 WRITE_BOOK_CONCEPTS = """
 MATCH (b:Book {id:$book_id})
@@ -99,6 +100,32 @@ MATCH (r:Result) WHERE r.id STARTS WITH $book_prefix AND r.name = $label
 RETURN r.id AS id LIMIT 2
 """
 
+WRITE_BOOK_NOTATIONS = """
+UNWIND $rows AS row
+  MATCH (s:Section {id: row.section_id})
+  MERGE (n:Notation {id: row.id})
+  SET n.symbol_latex = row.symbol_latex, n.meaning = row.meaning
+  MERGE (n)-[:INTRODUCED_IN]->(s)
+  FOREACH (_ IN CASE WHEN row.concept IS NULL THEN [] ELSE [1] END |
+    MERGE (c:Concept {name: row.concept})
+    MERGE (n)-[:DENOTES]->(c))
+"""
+
+WRITE_BOOK_PROOFS = """
+UNWIND $rows AS row
+  MATCH (r:Result {id: row.result_id})
+  MERGE (p:Proof {id: row.id})
+  SET p.sketch = row.sketch, p.technique = row.technique
+  MERGE (r)-[:HAS_PROOF]->(p)
+"""
+
+WRITE_DEF_USES = """
+UNWIND $rows AS row
+  MATCH (d:Definition {id: row.def_id})
+  MATCH (c:Concept {name: row.concept})
+  MERGE (d)-[:USES]->(c)
+"""
+
 
 def book_definition_rows(owner: str, section_id: str, defs: list[dict]) -> list[dict]:
     return [{"id": def_id(owner, d["statement"]), "term": d["term"],
@@ -128,3 +155,35 @@ def split_depends_on(owner: str, results: list[dict],
             else:
                 unresolved.append({"res_id": rid, "label": dep_label})
     return resolved, unresolved
+
+
+def book_notation_rows(book_id: str, section_id: str, notations: list[dict],
+                       surface_to_canon: dict[str, str]) -> list[dict]:
+    return [{"id": notation_node_id(book_id, n["symbol_latex"]),
+             "symbol_latex": n["symbol_latex"], "meaning": n["meaning"],
+             "concept": surface_to_canon.get(n.get("concept", "").lower()) or None,
+             "section_id": section_id} for n in notations]
+
+
+def book_proof_rows(owner: str, section_id: str, results: list[dict]) -> list[dict]:
+    rows = []
+    for r in results:
+        pr = r.get("proof")
+        if not pr:
+            continue
+        rid = result_id(owner, r["kind"], r["statement"])
+        rows.append({"id": f"{rid}:proof", "result_id": rid,
+                     "sketch": pr["sketch"], "technique": pr.get("technique", "")})
+    return rows
+
+
+def def_uses_rows(owner: str, definitions: list[dict],
+                  surface_to_canon: dict[str, str]) -> list[dict]:
+    rows = []
+    for d in definitions:
+        did = def_id(owner, d["statement"])
+        for name in d.get("uses", []):
+            canon = surface_to_canon.get(name.lower())
+            if canon:
+                rows.append({"def_id": did, "concept": canon})
+    return rows
