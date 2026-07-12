@@ -74,12 +74,15 @@ All offline (no API):
 - Chapter-role heuristics on the Williams outline + synthetic outlines.
 - One recorded-fixture test per prompt exemplar pinning extraction output shape.
 
-### 7. Migration & re-run (approved: full Williams re-run, ~$3–4)
+### 7. Migration & re-run (approved: full Williams wipe + re-ingest, ~$3–4)
 
-1. Cleanup script: delete Williams' extraction-layer nodes only (Concepts/Definitions/Results reachable solely from Williams; keep Book/Chapter/Section/Chunk + embeddings). Also delete the smoke-test fixture book ("Stochastic Processes: A Tiny Book", `isbn:9783161484100`) and its subtree.
-2. Re-run `scripts/init_neo4j.py` for the new constraint.
-3. Clear the 14 chapter partitions' materializations; `book_chapters_sensor` re-runs them under v2; linker runs.
-4. Verify against success criteria below.
+Per Osian (2026-07-12): wipe ALL current Williams data from the graph before the v2 run — not just the extraction layer. Since chapter classification (§3) changes the structure step's output anyway, the clean path is a full re-ingest.
+
+1. Wipe script (runs immediately before the v2 re-run): delete the Williams Book node and its entire subtree (Chapters, Sections, Chunks, Document, plus Concepts/Definitions/Results left orphaned by the deletion). Also delete the smoke-test fixture book ("Stochastic Processes: A Tiny Book", `isbn:9783161484100`) and its subtree.
+2. Clear all Williams Dagster partitions (book partition + 14 chapter partitions) and their materializations so the sensors treat the PDF as new.
+3. Re-run `scripts/init_neo4j.py` for the new constraint.
+4. `books_sensor` re-ingests: structure build with roles → chapter extraction under v2 (content/notation_guide/exercises only) → linker. Parsing + embeddings rebuild costs are negligible (OpenAI embeddings ~cents).
+5. Verify against success criteria below.
 
 ## Success criteria (Williams re-run)
 
