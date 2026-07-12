@@ -20,15 +20,18 @@ def build_mcp(graph: GraphClient) -> FastMCP:
     @mcp.tool()
     def search_chunks(query: str, top_k: int = 8, expand: str = "local",
                       paper_id: str | None = None) -> dict:
-        """Vector-search paper chunks; expand='local' adds each hit paper's concepts,
-        definitions, results, and CITES neighbours; expand='concepts' pivots to the
-        top concepts across hits. Cite results as (paper_title, chunk position)."""
+        """Hybrid (vector + keyword) search over paper chunks; expand='local' adds each
+        hit paper's concepts, definitions, results, and CITES neighbours; expand='concepts'
+        pivots to the top concepts across hits. Cite results as (paper_title, chunk position)."""
         top_k = q.validate_top_k(top_k)
         expand = q.validate_expand(expand)
         emb = graph.embed(query)
         k = top_k * 4 if paper_id else top_k
-        hits = graph.read(q.VECTOR_SEARCH, k=k, top_k=top_k,
-                          embedding=emb, paper_id=paper_id)
+        vec_hits = graph.read(q.VECTOR_SEARCH, k=k, top_k=top_k,
+                              embedding=emb, paper_id=paper_id)
+        ft_hits = graph.read(q.FULLTEXT_SEARCH, q=q.lucene_escape(query),
+                             paper_id=paper_id, top_k=top_k)
+        hits = q.merge_chunk_hits(vec_hits, ft_hits, top_k)
         out: dict = {"chunks": hits}
         paper_ids = sorted({h["paper_id"] for h in hits})
         if expand == "local" and paper_ids:

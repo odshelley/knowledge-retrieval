@@ -1,5 +1,6 @@
 import pytest
 
+from server import queries as q
 from server.queries import (
     dependency_chain_cypher,
     merge_paper_hits,
@@ -90,3 +91,32 @@ def test_graph_client_reads_with_read_access():
     assert gc.read("RETURN 1 AS ok") == [{"ok": 1}]
     assert driver.session_kwargs["default_access_mode"] == READ_ACCESS
     assert driver.session_kwargs["database"] == "neo4j"
+
+
+def test_lucene_escape_neutralizes_operators():
+    assert q.lucene_escape("a+b (c) OR d/e") == "a\\+b \\(c\\) OR d\\/e"
+    assert q.lucene_escape("") == ""
+    assert q.lucene_escape("plain words") == "plain words"
+
+
+def _row(cid, score):
+    return {"chunk_id": cid, "score": score, "text": "t", "position": 0,
+            "paper_id": "p", "paper_title": "T", "year": 2024}
+
+
+def test_merge_chunk_hits_normalizes_and_dedups():
+    vec = [_row("a", 0.90), _row("b", 0.45)]
+    ft = [_row("b", 12.0), _row("c", 6.0)]
+    out = q.merge_chunk_hits(vec, ft, top_k=3)
+    ids = [r["chunk_id"] for r in out]
+    # a: 0.90/0.90 = 1.0; b: max(0.45/0.90, 12/12) = 1.0; c: 6/12 = 0.5
+    assert set(ids[:2]) == {"a", "b"}
+    assert ids[2] == "c"
+    assert out[2]["score"] == 0.5
+    assert len(out) == 3
+
+
+def test_merge_chunk_hits_handles_empty_sides():
+    assert q.merge_chunk_hits([], [], 5) == []
+    only_vec = q.merge_chunk_hits([_row("a", 0.8)], [], 5)
+    assert only_vec[0]["score"] == 1.0

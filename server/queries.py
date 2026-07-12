@@ -48,6 +48,43 @@ def merge_paper_hits(title_rows: list[dict], vector_rows: list[dict], top_k: int
     return out[:top_k]
 
 
+_LUCENE_SPECIAL = set('+-&|!(){}[]^"~*?:\\/')
+
+
+def lucene_escape(q: str) -> str:
+    """Escape Lucene query operators so a natural-language question is a literal term query."""
+    return "".join("\\" + ch if ch in _LUCENE_SPECIAL else ch for ch in q)
+
+
+def merge_chunk_hits(vector_rows: list[dict], fulltext_rows: list[dict],
+                     top_k: int) -> list[dict]:
+    """Hybrid merge: normalize each list by its own max score (vector scores are 0..1 cosine,
+    Lucene scores are unbounded, so raw scores are incomparable), union, dedup by chunk_id
+    keeping the best normalized score, sort descending, cut to top_k."""
+    def normalized(rows: list[dict]) -> list[dict]:
+        if not rows:
+            return []
+        mx = max(r["score"] for r in rows) or 1.0
+        return [{**r, "score": r["score"] / mx} for r in rows]
+
+    best: dict[str, dict] = {}
+    for r in normalized(vector_rows) + normalized(fulltext_rows):
+        cur = best.get(r["chunk_id"])
+        if cur is None or r["score"] > cur["score"]:
+            best[r["chunk_id"]] = r
+    return sorted(best.values(), key=lambda r: -r["score"])[:top_k]
+
+
+FULLTEXT_SEARCH = """
+CALL db.index.fulltext.queryNodes('chunk_text', $q) YIELD node, score
+MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(p:Paper)
+WHERE $paper_id IS NULL OR p.id = $paper_id
+RETURN node.id AS chunk_id, node.text AS text, node.position AS position, score,
+       p.id AS paper_id, p.title AS paper_title, p.year AS year
+ORDER BY score DESC
+LIMIT $top_k
+"""
+
 VECTOR_SEARCH = """
 CALL db.index.vector.queryNodes('chunk_embedding', $k, $embedding)
 YIELD node, score
