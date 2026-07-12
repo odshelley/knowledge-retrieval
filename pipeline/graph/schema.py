@@ -23,6 +23,8 @@ NODE_TYPES = [
     "Section",
     "Document",
     "Chunk",
+    "Notation",
+    "Proof",
 ]
 
 # Verbatim from legacy DB. Verbs are subject-first
@@ -56,6 +58,10 @@ RELATIONSHIP_TYPES = [
     "HAS_CHAPTER",
     "HAS_SECTION",
     "PART_OF",
+    "INTRODUCED_IN",
+    "DENOTES",
+    "HAS_PROOF",
+    "PROVED_IN",
 ]
 
 # Verbatim patterns from the legacy DB (start, rel, end).
@@ -102,6 +108,10 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Chunk",      "PART_OF",      "Section"),
     ("Section",    "STATES",       "Definition"),
     ("Section",    "STATES",       "Result"),
+    ("Notation",   "INTRODUCED_IN","Section"),
+    ("Notation",   "DENOTES",      "Concept"),
+    ("Result",     "HAS_PROOF",    "Proof"),
+    ("Result",     "PROVED_IN",    "Chunk"),
 ]
 
 INIT_CYPHER = """

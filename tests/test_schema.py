@@ -101,6 +101,37 @@ def test_init_cypher_has_chapter_and_section_constraints():
     assert "CREATE CONSTRAINT section_id IF NOT EXISTS" in joined
 
 
+def test_proof_pipeline_node_types_present():
+    from pipeline.graph.schema import NODE_TYPES
+    for label in ("Notation", "Proof"):
+        assert label in NODE_TYPES
+
+
+def test_proof_pipeline_relationship_types_present():
+    from pipeline.graph.schema import RELATIONSHIP_TYPES
+    for rel in ("INTRODUCED_IN", "DENOTES", "HAS_PROOF", "PROVED_IN"):
+        assert rel in RELATIONSHIP_TYPES
+
+
+def test_proof_pipeline_patterns_present():
+    from pipeline.graph.schema import PATTERNS
+    expected = [
+        ("Notation", "INTRODUCED_IN", "Section"),
+        ("Notation", "DENOTES", "Concept"),
+        ("Result", "HAS_PROOF", "Proof"),
+        ("Result", "PROVED_IN", "Chunk"),
+    ]
+    for triple in expected:
+        assert triple in PATTERNS
+
+
+def test_init_cypher_has_proof_notation_constraints():
+    from pipeline.graph.schema import iter_init_statements
+    joined = " ".join(" ".join(s.split()) for s in iter_init_statements())
+    assert "CREATE CONSTRAINT notation_id IF NOT EXISTS" in joined
+    assert "CREATE CONSTRAINT proof_id IF NOT EXISTS" in joined
+
+
 def test_init_scripts_import_current_module_paths():
     # Regression: scripts still importing pipeline.schema / pipeline.cypher broke at c636533.
     import pathlib
