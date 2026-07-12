@@ -233,3 +233,36 @@ def merge_results(parts: list[ExtractionResult]) -> ExtractionResult:
                 _extend_unique(kept.uses, r.uses)
                 _extend_unique(kept.depends_on, r.depends_on)
     return ExtractionResult(concepts=concepts, definitions=definitions, results=results)
+
+
+def merge_results_with_provenance(
+    parts: list[ExtractionResult], chunk_ids: list[str],
+) -> tuple[ExtractionResult, dict]:
+    """merge_results plus per-item source-chunk ids. `chunk_ids` aligns 1:1 with `parts`.
+    Provenance keys mirror the dedup keys merge_results/graph_write use: lowercased concept
+    name; normalize_statement(statement) for definitions; '<kind>|<normalized>' for results."""
+    assert len(parts) == len(chunk_ids), "chunk_ids must align 1:1 with parts"
+    merged = merge_results(parts)
+    kept_c = {c.name.lower() for c in merged.concepts}
+    kept_d = {normalize_statement(d.statement) for d in merged.definitions}
+    kept_r = {f"{r.kind}|{normalize_statement(r.statement)}" for r in merged.results}
+    prov: dict = {"concepts": {}, "definitions": {}, "results": {}}
+
+    def _add(bucket: dict, key: str, cid: str) -> None:
+        lst = bucket.setdefault(key, [])
+        if cid not in lst:
+            lst.append(cid)
+
+    for part, cid in zip(parts, chunk_ids):
+        for c in part.concepts:
+            if c.name.lower() in kept_c:
+                _add(prov["concepts"], c.name.lower(), cid)
+        for d in part.definitions:
+            k = normalize_statement(d.statement)
+            if k in kept_d:
+                _add(prov["definitions"], k, cid)
+        for r in part.results:
+            k = f"{r.kind}|{normalize_statement(r.statement)}"
+            if k in kept_r:
+                _add(prov["results"], k, cid)
+    return merged, prov

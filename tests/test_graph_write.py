@@ -90,3 +90,24 @@ def test_depends_on_edge_rows_maps_names_and_skips_self_and_unknown():
     assert rows == [{"res_id": result_id("p1", "theorem", "$a$"),
                      "dep_id": result_id("p1", "lemma", "$b$")}]
     assert skipped == 2   # self-reference "Theorem 1" + unknown "Missing"
+
+
+def test_mention_rows_maps_surface_to_canonical():
+    from pipeline.assets.graph_write import mention_rows
+    prov = {"concepts": {"bm": ["d:0", "d:2"], "unknown thing": ["d:1"]}}
+    rows, skipped = mention_rows(prov, {"bm": "Brownian motion"})
+    assert rows == [{"chunk_id": "d:0", "canonical": "Brownian motion"},
+                    {"chunk_id": "d:2", "canonical": "Brownian motion"}]
+    assert skipped == 1
+
+
+def test_extracted_from_rows_recomputes_ids():
+    from pipeline.assets.graph_write import def_id, extracted_from_rows, result_id
+    defs = [{"term": "BM", "statement": "A process with...", "defines": []}]
+    results = [{"kind": "theorem", "statement": "Every martingale...", "name": "", "uses": [], "depends_on": []}]
+    from pipeline.text_norm import normalize_statement
+    prov = {"definitions": {normalize_statement("A process with..."): ["d:0"]},
+            "results": {"theorem|" + normalize_statement("Every martingale..."): ["d:3"]}}
+    drows, rrows = extracted_from_rows("paper1", defs, results, prov)
+    assert drows == [{"node_id": def_id("paper1", "A process with..."), "chunk_id": "d:0"}]
+    assert rrows == [{"node_id": result_id("paper1", "theorem", "Every martingale..."), "chunk_id": "d:3"}]

@@ -139,3 +139,19 @@ def test_system_prompt_states_both_rules():
     from pipeline.extraction.extraction import SYSTEM_PROMPT
     assert "LaTeX" in SYSTEM_PROMPT
     assert "Brownian motion" in SYSTEM_PROMPT  # the concept-vs-notation few-shot
+
+
+def test_merge_results_with_provenance_tracks_chunk_ids():
+    from pipeline.extraction.extraction import (
+        Concept, Definition, ExtractionResult, Result, merge_results_with_provenance)
+    p1 = ExtractionResult(
+        concepts=[Concept(name="Brownian motion")],
+        definitions=[Definition(term="BM", statement="A process with...")],
+        results=[Result(kind="theorem", statement="Every martingale...")])
+    p2 = ExtractionResult(concepts=[Concept(name="brownian motion")])  # dup, differing case
+    merged, prov = merge_results_with_provenance([p1, p2], ["doc:0", "doc:1"])
+    assert len(merged.concepts) == 1
+    assert prov["concepts"]["brownian motion"] == ["doc:0", "doc:1"]
+    from pipeline.text_norm import normalize_statement
+    assert prov["definitions"][normalize_statement("A process with...")] == ["doc:0"]
+    assert prov["results"]["theorem|" + normalize_statement("Every martingale...")] == ["doc:0"]

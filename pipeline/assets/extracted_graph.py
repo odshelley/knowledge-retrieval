@@ -10,7 +10,7 @@ import time
 from dagster import MaterializeResult, MetadataValue, asset
 
 from pipeline.assets.parsed_document import QuarantineError
-from pipeline.extraction.extraction import extract_from_chunk, merge_results
+from pipeline.extraction.extraction import extract_from_chunk, merge_results_with_provenance
 from pipeline.extraction.extraction_anthropic import extract_from_chunk_anthropic
 from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.runtime.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET
@@ -22,7 +22,9 @@ def extracted_graph(context) -> MaterializeResult:
     key = context.partition_key
     s3 = context.resources.minio.get_client()
     chunk_rows = json.loads(s3.get_object(Bucket=CHUNKS_BUCKET, Key=f"{key}.json")["Body"].read())
-    texts = [c["text"] for c in sorted(chunk_rows, key=lambda c: c["position"]) if c["text"]]
+    ordered = [c for c in sorted(chunk_rows, key=lambda c: c["position"]) if c["text"]]
+    texts = [c["text"] for c in ordered]
+    ids = [c["id"] for c in ordered]
 
     provider = os.environ.get("EXTRACTION_PROVIDER", "openai").lower()
     if provider == "anthropic":
@@ -46,7 +48,7 @@ def extracted_graph(context) -> MaterializeResult:
             t0 = time.monotonic()
             parts.append(extract_one(t))
             context.log.info(f"extraction: chunk {i + 1}/{n} done in {time.monotonic() - t0:.1f}s")
-        merged = merge_results(parts)
+        merged, provenance = merge_results_with_provenance(parts, ids)
     except (json.JSONDecodeError, ValueError, KeyError, IndexError, AttributeError) as exc:
         raise QuarantineError(f"{key}: extraction returned unparseable/invalid JSON") from exc
 
@@ -54,6 +56,7 @@ def extracted_graph(context) -> MaterializeResult:
         "concepts": [c.model_dump() for c in merged.concepts],
         "definitions": [d.model_dump() for d in merged.definitions],
         "results": [r.model_dump() for r in merged.results],
+        "provenance": provenance,
     }
     s3.put_object(Bucket=EXTRACTED_BUCKET, Key=f"{key}.json",
                   Body=json.dumps(payload).encode("utf-8"))

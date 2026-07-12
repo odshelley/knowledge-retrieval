@@ -107,6 +107,36 @@ def depends_on_edge_rows(paper_id: str, results: list[dict],
     return rows, skipped
 
 
+def mention_rows(provenance: dict, surface_to_canon: dict[str, str]) -> tuple[list[dict], int]:
+    """Chunk-MENTIONS->Concept rows from extraction provenance, mapped through the resolver's
+    surface->canonical table (lowercased keys). Skips surfaces with no canonical."""
+    rows, skipped = [], 0
+    for surface_l, cids in provenance.get("concepts", {}).items():
+        canon = surface_to_canon.get(surface_l)
+        if canon is None:
+            skipped += 1
+            continue
+        rows.extend({"chunk_id": cid, "canonical": canon} for cid in cids)
+    return rows, skipped
+
+
+def extracted_from_rows(paper_id: str, raw_defs: list[dict], raw_results: list[dict],
+                        provenance: dict) -> tuple[list[dict], list[dict]]:
+    """Definition/Result -EXTRACTED_FROM-> Chunk rows; node ids recomputed with the same
+    content-hash scheme the node writers use, provenance looked up by the same keys."""
+    drows = []
+    for d in raw_defs:
+        k = normalize_statement(d["statement"])
+        drows.extend({"node_id": def_id(paper_id, d["statement"]), "chunk_id": cid}
+                     for cid in provenance.get("definitions", {}).get(k, []))
+    rrows = []
+    for r in raw_results:
+        k = f"{r['kind']}|{normalize_statement(r['statement'])}"
+        rrows.extend({"node_id": result_id(paper_id, r["kind"], r["statement"]), "chunk_id": cid}
+                     for cid in provenance.get("results", {}).get(k, []))
+    return drows, rrows
+
+
 # --- Cypher -------------------------------------------------------------------
 WRITE_CHUNKS = """
 MERGE (d:Document {id:$doc_id}) SET d.paper_id = $paper_id
@@ -179,6 +209,27 @@ UNWIND $rows AS row
   MERGE (r1)-[:DEPENDS_ON]->(r2)
 """
 
+WRITE_MENTIONS = """
+UNWIND $rows AS row
+  MATCH (ch:Chunk {id: row.chunk_id})
+  MATCH (c:Concept {name: row.canonical})
+  MERGE (ch)-[:MENTIONS]->(c)
+"""
+
+WRITE_DEF_PROVENANCE = """
+UNWIND $rows AS row
+  MATCH (d:Definition {id: row.node_id})
+  MATCH (ch:Chunk {id: row.chunk_id})
+  MERGE (d)-[:EXTRACTED_FROM]->(ch)
+"""
+
+WRITE_RESULT_PROVENANCE = """
+UNWIND $rows AS row
+  MATCH (r:Result {id: row.node_id})
+  MATCH (ch:Chunk {id: row.chunk_id})
+  MERGE (r)-[:EXTRACTED_FROM]->(ch)
+"""
+
 _MATCH_PENDING = ("ref_s2_id=%s OR ref_doi=%s OR ref_arxiv_id=%s OR ref_title_norm=%s")
 
 
@@ -218,6 +269,13 @@ def graph_write(context) -> MaterializeResult:
         s.run(WRITE_DEFINES, rows=def_edges)
         s.run(WRITE_RESULT_USES, rows=use_edges)
         s.run(WRITE_RESULT_DEPENDS, rows=dep_edges)
+
+        provenance = resolved.get("provenance", {})  # absent on pre-change artifacts
+        m_rows, sk_mention = mention_rows(provenance, surface_to_canon)
+        dprov_rows, rprov_rows = extracted_from_rows(paper_id, raw_defs, raw_results, provenance)
+        s.run(WRITE_MENTIONS, rows=m_rows)
+        s.run(WRITE_DEF_PROVENANCE, rows=dprov_rows)
+        s.run(WRITE_RESULT_PROVENANCE, rows=rprov_rows)
 
         with context.resources.postgres.connect() as conn:
             with conn.cursor() as cur:
@@ -269,4 +327,6 @@ def graph_write(context) -> MaterializeResult:
         "skipped_def_concepts": MetadataValue.int(sk_def),
         "skipped_use_concepts": MetadataValue.int(sk_use),
         "skipped_dep_results": MetadataValue.int(sk_dep),
+        "mentions": MetadataValue.int(len(m_rows)),
+        "extracted_from": MetadataValue.int(len(dprov_rows) + len(rprov_rows)),
     })
