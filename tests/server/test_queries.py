@@ -125,3 +125,22 @@ def test_merge_chunk_hits_handles_empty_sides():
 def test_search_concepts_query_targets_concept_index():
     assert "concept_embedding" in q.SEARCH_CONCEPTS
     assert "supporting_chunks" in q.GET_CONCEPT
+
+
+def test_write_guard_rejects_write_clauses():
+    for bad in ["CREATE (n)", "MATCH (n) SET n.x=1", "MERGE (n:X)",
+                "MATCH (n) DETACH DELETE n", "DROP INDEX foo",
+                "LOAD CSV FROM 'x' AS row RETURN row"]:
+        with pytest.raises(ValueError):
+            q.check_read_only(bad)
+
+
+def test_write_guard_allows_reads():
+    q.check_read_only("MATCH (p:Paper) RETURN count(p)")
+    q.check_read_only("CALL db.index.vector.queryNodes('x', 5, $e) YIELD node RETURN node")
+
+
+def test_render_schema_lists_patterns():
+    text = q.render_schema()
+    assert "(:Paper)-[:DISCUSSES]->(:Concept)" in text
+    assert "Chunk" in text

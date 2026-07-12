@@ -1,4 +1,6 @@
-"""The 9 typed read-only MCP tools. Synthesis is the caller's job; these only retrieve."""
+"""The 11 read-only MCP tools: 9 typed retrieval tools plus get_schema/run_cypher, a
+guarded Cypher escape hatch for questions no typed tool covers. Synthesis is the
+caller's job; these only retrieve."""
 from __future__ import annotations
 
 import json
@@ -98,5 +100,21 @@ def build_mcp(graph: GraphClient) -> FastMCP:
         return {"counts": counts[0] if counts else {},
                 "top_concepts": graph.read(q.OVERVIEW_TOP_CONCEPTS),
                 "recent_papers": graph.read(q.OVERVIEW_RECENT)}
+
+    @mcp.tool()
+    def get_schema() -> dict:
+        """The graph's node labels, relationship patterns, and key properties.
+        Read this before writing a run_cypher query."""
+        return {"schema": q.render_schema()}
+
+    @mcp.tool()
+    def run_cypher(query: str) -> dict:
+        """Read-only Cypher escape hatch for aggregations and questions no typed tool
+        covers (counts, rankings, filters, multi-hop). The session is read-only at the
+        driver level; rows are capped at 100 with a 15s timeout. Call get_schema first
+        and use only the labels/relationships it lists."""
+        q.check_read_only(query)
+        rows, truncated = graph.read_limited(query)
+        return {"rows": rows, "row_count": len(rows), "truncated": truncated}
 
     return mcp

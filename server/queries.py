@@ -5,8 +5,34 @@ within the paper), not a section — cite as (paper, chunk position).
 """
 from __future__ import annotations
 
+import re
+
+from pipeline.graph.schema import NODE_TYPES, PATTERNS
+
 VALID_EXPAND = ("none", "local", "concepts")
 VALID_KINDS = ("theorem", "lemma", "proposition", "corollary")
+
+_WRITE_CLAUSE = re.compile(
+    r"\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|FOREACH|LOAD\s+CSV)\b", re.IGNORECASE)
+
+
+def check_read_only(cypher: str) -> None:
+    """Courtesy guard for clearer errors; the real enforcement is the driver-level
+    READ_ACCESS session (see GraphClient), which the integration suite verifies."""
+    m = _WRITE_CLAUSE.search(cypher)
+    if m:
+        raise ValueError(f"run_cypher is read-only; found write clause {m.group(0)!r}")
+
+
+def render_schema() -> str:
+    lines = ["Node labels: " + ", ".join(NODE_TYPES), "", "Relationships:"]
+    lines += [f"(:{s})-[:{r}]->(:{e})" for s, r, e in PATTERNS]
+    lines += ["", "Key properties: Paper{id,title,year,doi,arxiv_id,abstract,tldr,citation_count}, "
+              "Concept{name,description,tags}, Definition{id,term,statement}, "
+              "Result{id,kind,name,statement}, Chunk{id,text,position}, "
+              "Book{id,title}, Chapter/Section{id,title}.",
+              "Only Topic/Researcher/Idea are in the vocabulary but not yet populated."]
+    return "\n".join(lines)
 
 
 def validate_top_k(k: int | None) -> int:

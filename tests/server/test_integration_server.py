@@ -60,3 +60,9 @@ def test_write_attempt_fails_readonly(graph):
     """The READ_ACCESS session (and, once created, the read-only user) must refuse writes."""
     with pytest.raises(Exception):
         graph.read("CREATE (x:KgWriteProbe) RETURN x")
+
+
+def test_run_cypher_write_attempt_rejected_by_guard(mcp):
+    """run_cypher's courtesy guard must raise ValueError before ever reaching the driver."""
+    with pytest.raises(Exception, match="read-only"):
+        _call(mcp, "run_cypher", {"query": "CREATE (n)"})
