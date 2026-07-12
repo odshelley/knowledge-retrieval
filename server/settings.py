@@ -28,5 +28,5 @@ class Settings:
             openai_api_key=os.environ["OPENAI_API_KEY"],
             embed_model=os.environ.get("KG_EMBED_MODEL", "text-embedding-3-small"),
             tokens=parse_tokens(os.environ.get("KG_TOKENS", "")),
-            rate_limit_per_min=int(os.environ.get("KG_RATE_LIMIT", "60")),
+            rate_limit_per_min=max(1, int(os.environ.get("KG_RATE_LIMIT", "60"))),
         )

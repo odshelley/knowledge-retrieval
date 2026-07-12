@@ -8,5 +8,7 @@ RUN pip install --no-cache-dir "mcp>=1.10" "uvicorn>=0.30" "neo4j>=5.27" \
     "openai>=1.55" "python-dotenv>=1.0"
 COPY pipeline/__init__.py pipeline/embedding.py pipeline/
 COPY server/ server/
+RUN useradd --create-home --uid 10001 kgserver
+USER kgserver
 EXPOSE 8080
 CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8080"]

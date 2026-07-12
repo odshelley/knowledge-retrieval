@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+import anyio.to_thread
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
@@ -47,7 +48,8 @@ def create_app(settings: Settings, graph: GraphClient | None = None) -> Starlett
 
     async def healthz(request):
         try:
-            graph.read("RETURN 1 AS ok")
+            # graph.read is sync — offload so a slow Neo4j doesn't block the event loop
+            await anyio.to_thread.run_sync(graph.read, "RETURN 1 AS ok")
             graph_ok = True
         except Exception:
             graph_ok = False

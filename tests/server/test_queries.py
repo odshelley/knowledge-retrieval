@@ -61,6 +61,10 @@ class _FakeSession:
             def __init__(self, d): self._d = d
             def data(self): return self._d
         return [_Rec(r) for r in self._rows]
+    def execute_read(self, fn, *args, **kwargs):
+        # unit_of_work-decorated callables stay plain functions; the fake session
+        # doubles as the tx object since both expose .run
+        return fn(self, *args, **kwargs)
     def __enter__(self): return self
     def __exit__(self, *a): return False
 

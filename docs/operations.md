@@ -177,7 +177,7 @@ This prints two lines:
 - the **`KG_TOKENS` entry** (`name:salt:hash`) — append it (comma-separated) to the
   server's `KG_TOKENS` secret:
   ```bash
-  fly secrets set -c docker/fly.toml KG_TOKENS="<existing-entries>,<new-entry>"
+  fly secrets set -a kg-graph KG_TOKENS="<existing-entries>,<new-entry>"
   ```
   This restarts the machine to pick up the new token; existing tokens keep working.
 
@@ -242,7 +242,7 @@ uv run python scripts/issue_token.py osian
 # copy BOTH printed lines: the token goes to the colleague/yourself (once),
 # the entry ("name:salt:hash") goes into KG_TOKENS below
 
-fly secrets set -c docker/fly.toml \
+fly secrets set -a kg-graph \
   KG_NEO4J_URI=... KG_NEO4J_USER=... KG_NEO4J_PASSWORD=... \
   OPENAI_API_KEY=... KG_TOKENS="<paste the name:salt:hash entry here>"
 ```

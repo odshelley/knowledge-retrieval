@@ -25,7 +25,11 @@ TOOL_CALLS = [
 
 
 async def main(base: str, token: str) -> int:
-    health = httpx.get(f"{base}/healthz", timeout=10)
+    try:
+        health = httpx.get(f"{base}/healthz", timeout=10)
+    except httpx.HTTPError as exc:
+        print(f"healthz: unreachable ({exc})")
+        return 1
     print(f"healthz: {health.status_code} {health.json()}")
     if health.status_code != 200:
         return 1
@@ -45,4 +49,7 @@ async def main(base: str, token: str) -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <base_url> <token>")
+        sys.exit(2)
     sys.exit(asyncio.run(main(sys.argv[1].rstrip("/"), sys.argv[2])))

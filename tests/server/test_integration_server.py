@@ -14,8 +14,10 @@ pytestmark = pytest.mark.integration
 def graph():
     from server.graph import GraphClient
     from server.settings import Settings
-    if not os.environ.get("KG_NEO4J_URI"):
-        pytest.skip("KG_NEO4J_URI not configured")
+    required = ("KG_NEO4J_URI", "KG_NEO4J_USER", "KG_NEO4J_PASSWORD", "OPENAI_API_KEY")
+    missing = [v for v in required if not os.environ.get(v)]
+    if missing:
+        pytest.skip(f"server integration env not configured (missing: {', '.join(missing)})")
     gc = GraphClient(Settings.from_env())
     yield gc
     gc.close()
