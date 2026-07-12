@@ -108,3 +108,11 @@ def test_init_scripts_import_current_module_paths():
         text = pathlib.Path(script).read_text()
         assert "pipeline.schema" not in text.replace("pipeline.graph.schema", "")
         assert "pipeline.cypher" not in text.replace("pipeline.graph.cypher", "")
+
+
+def test_fulltext_chunk_index_in_init():
+    from pipeline.graph.schema import iter_init_statements
+    stmts = iter_init_statements()
+    assert any("FULLTEXT INDEX chunk_text" in s for s in stmts), (
+        "INIT_CYPHER must create the chunk_text full-text index (hybrid search depends on it)"
+    )
