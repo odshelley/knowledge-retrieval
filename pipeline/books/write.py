@@ -22,7 +22,7 @@ WRITE_CHAPTERS = """
 MATCH (b:Book {id: $id})
 UNWIND $rows AS row
   MERGE (ch:Chapter {id: row.id})
-  SET ch.number = row.number, ch.title = row.title,
+  SET ch.number = row.number, ch.title = row.title, ch.role = row.role,
       ch.page_start = row.page_start, ch.page_end = row.page_end
   MERGE (b)-[:HAS_CHAPTER {order: row.order}]->(ch)
 """
@@ -50,6 +50,7 @@ UNWIND $rows AS row
 
 def chapter_rows(structure: dict) -> list[dict]:
     return [{"id": ch["id"], "number": ch["number"], "title": ch["title"],
+             "role": ch.get("role", "content"),
              "page_start": ch["page_start"], "page_end": ch["page_end"],
              "order": ch["number"]} for ch in structure["chapters"]]
 
