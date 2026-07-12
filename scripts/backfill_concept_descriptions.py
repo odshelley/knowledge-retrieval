@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -61,31 +62,43 @@ def describe(client, model: str, name: str, defs, excerpts, papers) -> str:
     return resp.choices[0].message.parsed.description
 
 
+def describe_and_embed(client, model: str, row) -> tuple[str, list[float]]:
+    """Runs the OpenAI work for one concept (thread-pool worker; no Neo4j access)."""
+    desc = describe(client, model, row["name"], row["defs"], row["excerpts"], row["papers"])
+    vec = embed_texts(client, [f"{row['name']}: {desc}"], model=EMBED_MODEL)[0]
+    return desc, vec
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=10000)
+    ap.add_argument("--workers", type=int, default=1,
+                     help="Thread-pool size for OpenAI calls (default 1 = sequential).")
     args = ap.parse_args()
     driver = GraphDatabase.driver(
         os.environ["NEO4J_NEW_URI"],
         auth=(os.environ["NEO4J_NEW_USERNAME"], os.environ["NEO4J_NEW_PASSWORD"]))
     db = os.environ.get("NEO4J_NEW_DATABASE", "neo4j")
-    client = OpenAI()  # OPENAI_API_KEY from .env
+    client = OpenAI()  # OPENAI_API_KEY from .env; httpx-based, thread-safe
     processed = 0
     skipped = 0
     with driver.session(database=db) as s:
         rows = s.run(MISSING, limit=args.limit).data()
         print(f"{len(rows)} concepts missing descriptions")
-        for i, row in enumerate(rows, 1):
-            try:
-                desc = describe(client, DESCRIBE_MODEL, row["name"],
-                                row["defs"], row["excerpts"], row["papers"])
-                vec = embed_texts(client, [f"{row['name']}: {desc}"], model=EMBED_MODEL)[0]
-                s.run(SET_ONE, name=row["name"], description=desc, embedding=vec)
-                processed += 1
-                print(f"[{i}/{len(rows)}] {row['name']}: {desc[:70]}")
-            except Exception as e:
-                skipped += 1
-                print(f"SKIP {row['name']}: {e}")
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = {pool.submit(describe_and_embed, client, DESCRIBE_MODEL, row): row
+                       for row in rows}
+            for i, future in enumerate(as_completed(futures), 1):
+                row = futures[future]
+                try:
+                    desc, vec = future.result()
+                    # Neo4j session is not thread-safe: all writes happen here, main thread.
+                    s.run(SET_ONE, name=row["name"], description=desc, embedding=vec)
+                    processed += 1
+                    print(f"[{i}/{len(rows)}] {row['name']}: {desc[:70]}")
+                except Exception as e:
+                    skipped += 1
+                    print(f"SKIP {row['name']}: {e}")
     driver.close()
     print(f"processed={processed} skipped={skipped}")
 
