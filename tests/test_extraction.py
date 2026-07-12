@@ -2,7 +2,7 @@ import pytest
 
 from pipeline.extraction.extraction import (
     ExtractionResult, parse_extraction, merge_results,
-    Concept, Definition, Result,
+    Concept, Definition, Result, SYSTEM_PROMPT,
 )
 
 def test_parse_extraction_reads_concepts_with_kind():
@@ -236,3 +236,28 @@ def test_merge_three_way_same_label_collision():
     assert "Borel" in r.statement
     assert r.depends_on == ["Lemma 3.2"]
     assert r.uses == ["measurable function"]
+
+
+def test_prompt_routes_notation_not_concepts():
+    assert "notations" in SYSTEM_PROMPT
+    assert "never leave raw Unicode math" in SYSTEM_PROMPT.lower() or \
+           "never leave raw unicode math" in SYSTEM_PROMPT.lower()
+    # old absolute ban must be gone (replaced by routing)
+    assert "Bare mathematical notation is never a concept" not in SYSTEM_PROMPT
+
+
+def test_prompt_has_statement_and_frontmatter_rules():
+    assert "never copy the heading" in SYSTEM_PROMPT.lower() or \
+           "never echo the heading" in SYSTEM_PROMPT.lower()
+    assert "statement_complete" in SYSTEM_PROMPT
+    assert "table of contents" in SYSTEM_PROMPT.lower()
+
+
+def test_prompt_exceeds_opus_cache_minimum():
+    # 4096 tokens ≈ 16.4k chars; require headroom so edits can't silently drop below.
+    assert len(SYSTEM_PROMPT) > 17000, len(SYSTEM_PROMPT)
+
+
+def test_prompt_contains_exemplars():
+    assert SYSTEM_PROMPT.count("EXAMPLE INPUT") >= 2
+    assert SYSTEM_PROMPT.count("EXAMPLE OUTPUT") >= 2

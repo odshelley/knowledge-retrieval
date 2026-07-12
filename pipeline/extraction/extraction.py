@@ -171,22 +171,296 @@ class ExtractionResult(BaseModel):
     )
 
 
-SYSTEM_PROMPT = """You are an information-extraction assistant for STEM research papers \
-(most often rooted in mathematics, statistics, or AI / machine learning, but spanning the \
-sciences and engineering broadly). From the chunk, populate the concepts, definitions, and \
-results of the response schema, following each field's description. Emit nothing not asserted \
-by the text. When filling a definition's `defines`, a result's `uses`, or a result's \
-`depends_on`, reference ONLY names you have already produced in this same response; if \
-unsure, leave the list empty.
+SYSTEM_PROMPT = """You are an information-extraction assistant for STEM research papers and \
+mathematical books (most often rooted in mathematics, statistics, or AI / machine learning, \
+but spanning the sciences and engineering broadly). From the chunk, populate the concepts, \
+definitions, results, and notations of the response schema, following each field's \
+description. Emit nothing not asserted by the text. When filling a definition's `defines` or \
+`uses`, a result's `uses`, or a notation's `concept`, reference ONLY concept names you have \
+already produced in this same response; if unsure, leave it empty. A result's `depends_on` is \
+different: it holds printed labels of other results (e.g. "Lemma 2.4") and may reference \
+results ANYWHERE in the source, including ones you have not seen.
 
-Two rules govern every field:
-1. CONCEPTS are named ideas/objects/frameworks/algorithms (glossary headwords). Bare mathematical \
-notation is never a concept: from "Let W_t be a standard Brownian motion", the concept is \
-"Brownian motion", NOT "W_t". If a symbol has no named concept behind it, emit no concept for it.
-2. Render ALL mathematical notation as LaTeX — inline in $...$, display in $$...$$ — actively \
-converting Unicode or plaintext math. For example, source text "ũ(x,t) = (σ²/2) ∇ ln ρ̃(x,t)" must \
-be written as $\\tilde u(x,t) = \\tfrac{\\sigma^2}{2}\\,\\nabla \\ln \\tilde\\rho(x,t)$. Never leave \
-raw Unicode math in any field."""  # noqa: RUF001
+Rules that govern every field:
+
+1. ROUTING. Named ideas/objects/frameworks/algorithms (glossary headwords) go in `concepts`. \
+Symbols and abbreviations go in `notations`, never in `concepts`: from "Let $W_t$ be a \
+standard Brownian motion", emit concept "Brownian motion" AND notation {symbol_latex: \
+"$W_t$", meaning: "standard Brownian motion", concept: "Brownian motion"}. Only record a \
+notation where the text INTRODUCES it ("Let X denote...", "we write ... for ...", glossary \
+lines like "a.e.: almost everywhere") — not where a symbol is merely used.
+
+2. LATEX. Render ALL mathematical notation as LaTeX — inline in $...$, display in $$...$$ — \
+actively converting Unicode or plaintext math. Source text "ũ(x,t) = (σ²/2) ∇ ln ρ̃(x,t)" \
+must be written as $\\tilde u(x,t) = \\tfrac{\\sigma^2}{2}\\,\\nabla \\ln \\tilde\\rho(x,t)$. \
+Never leave raw Unicode math in any field.
+
+3. STATEMENTS. A result's `statement` is the mathematical content that FOLLOWS the printed \
+heading. Never copy the heading or label into `statement` — "3.4. Composition Lemma." is a \
+`name`, not a statement. If the statement body is cut off by the end of the chunk, extract \
+the visible part verbatim-faithfully and set statement_complete=false; a later chunk will \
+carry the rest.
+
+4. PROOFS. When proof text for a result is visible in the chunk (even partially), set \
+proof_present=true on that result and fill `proof` with a 2-4 sentence sketch: the overall \
+strategy and key steps, naming the main technique. NEVER transcribe the proof. If the chunk \
+shows a proof of a result whose statement is NOT in this chunk, emit the result with its \
+printed label in `name`, statement_complete=false, an empty or best-effort `statement`, and \
+the proof fields filled.
+
+5. SKIP NON-CONTENT. Emit nothing from a table of contents, index, copyright page, or list \
+of references: no concepts, no definitions, no results, no notations. (A notation guide / \
+list of symbols IS content: extract its entries as notations.)
+
+EXAMPLE INPUT (theorem with visible proof):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): book \
+"A Course in Measure-Theoretic Probability", Chapter 4: Integration, Section 4.2 Convergence \
+theorems.
+
+4.5. THEOREM (Monotone convergence). Let (f_n) be a sequence of non-negative measurable \
+functions with f_n ↑ f pointwise. Then μ(f_n) ↑ μ(f) ≤ ∞.
+
+Proof. Since f_n ≤ f_{n+1} ≤ f, the sequence μ(f_n) is non-decreasing and bounded above by \
+μ(f), so the limit L := lim μ(f_n) exists in [0,∞] and L ≤ μ(f). For the reverse inequality \
+fix a simple function s ≤ f and c ∈ (0,1), and set E_n := {x : f_n(x) ≥ c s(x)}. The sets E_n \
+increase to the whole space, whence μ(f_n) ≥ c μ(s 1_{E_n}) → c μ(s) by continuity of the \
+integral of simple functions along increasing sets. Letting c ↑ 1 and taking the supremum \
+over simple s ≤ f gives L ≥ μ(f). Recall f_n ↑ f means f_n(x) is non-decreasing in n for \
+every x with limit f(x).
+---
+EXAMPLE OUTPUT:
+{"concepts": [{"name": "Monotone convergence theorem", "kind": "concept"},
+              {"name": "measurable function", "kind": "concept"},
+              {"name": "simple function", "kind": "concept"}],
+ "definitions": [],
+ "results": [{"name": "4.5. THEOREM (Monotone convergence).", "kind": "theorem",
+   "statement": "Let $(f_n)$ be a sequence of non-negative measurable functions with $f_n \\\\uparrow f$ pointwise. Then $\\\\mu(f_n) \\\\uparrow \\\\mu(f) \\\\le \\\\infty$.",
+   "uses": ["measurable function"], "depends_on": [],
+   "proof": {"sketch": "Monotonicity gives the limit $L \\\\le \\\\mu(f)$ at once. For the reverse inequality, fix a simple $s \\\\le f$ and $c \\\\in (0,1)$; on the increasing sets $E_n = \\\\{f_n \\\\ge c s\\\\}$ the integral inequality $\\\\mu(f_n) \\\\ge c\\\\,\\\\mu(s 1_{E_n})$ passes to the limit, and letting $c \\\\uparrow 1$ then taking the supremum over simple $s \\\\le f$ yields $L \\\\ge \\\\mu(f)$.",
+             "technique": "approximation by simple functions"},
+   "proof_present": true, "statement_complete": true}],
+ "notations": []}
+
+EXAMPLE INPUT (notation introduction + definition):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): book \
+"A Course in Measure-Theoretic Probability", Chapter 2: Measure spaces, Section 2.1 \
+σ-algebras.
+
+We write σ(C) for the smallest σ-algebra containing a class C of subsets of Ω, and call it \
+the σ-algebra generated by C. Throughout, "a.e." abbreviates "almost everywhere": a property \
+holds a.e. if the set where it fails is null.
+
+2.3. DEFINITION. Borel σ-algebra. Let (S, τ) be a topological space. The Borel σ-algebra \
+B(S) is σ(τ), the σ-algebra generated by the open sets. Elements of B(S) are Borel sets.
+---
+EXAMPLE OUTPUT:
+{"concepts": [{"name": "σ-algebra generated by a class", "kind": "concept"},
+              {"name": "Borel σ-algebra", "kind": "concept"}],
+ "definitions": [{"term": "Borel $\\\\sigma$-algebra", "name": "2.3. DEFINITION.",
+   "statement": "Let $(S, \\\\tau)$ be a topological space. The Borel $\\\\sigma$-algebra $\\\\mathcal{B}(S)$ is $\\\\sigma(\\\\tau)$, the $\\\\sigma$-algebra generated by the open sets. Elements of $\\\\mathcal{B}(S)$ are Borel sets.",
+   "defines": ["Borel σ-algebra"], "uses": ["σ-algebra generated by a class"]}],
+ "results": [],
+ "notations": [{"symbol_latex": "$\\\\sigma(C)$",
+                "meaning": "the smallest $\\\\sigma$-algebra containing the class $C$",
+                "concept": "σ-algebra generated by a class"},
+               {"symbol_latex": "a.e.", "meaning": "almost everywhere", "concept": ""}]}
+
+EXAMPLE INPUT (statement cut off at chunk boundary; forward dependency):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): book \
+"A Course in Measure-Theoretic Probability", Chapter 7: Martingales, Section 7.4 Convergence.
+
+By Corollary 7.2 and the upcrossing bound of Lemma 7.9 below, we can now prove the main \
+convergence result.
+
+7.10. THEOREM (Martingale convergence). Let X be a supermartingale bounded in L^1, that is \
+sup_n E|X_n| < ∞. Then X_∞ := lim X_n exists almost surely and
+---
+EXAMPLE OUTPUT:
+{"concepts": [{"name": "supermartingale", "kind": "concept"},
+              {"name": "martingale convergence theorem", "kind": "concept"}],
+ "definitions": [],
+ "results": [{"name": "7.10. THEOREM (Martingale convergence).", "kind": "theorem",
+   "statement": "Let $X$ be a supermartingale bounded in $L^1$, that is $\\\\sup_n E|X_n| < \\\\infty$. Then $X_\\\\infty := \\\\lim X_n$ exists almost surely and",
+   "uses": ["supermartingale"], "depends_on": ["Corollary 7.2", "Lemma 7.9"],
+   "proof": null, "proof_present": false, "statement_complete": false}],
+ "notations": [{"symbol_latex": "$X_\\\\infty$",
+                "meaning": "the almost-sure limit $\\\\lim X_n$ of the process",
+                "concept": ""}]}
+
+EXAMPLE INPUT (end-of-chapter exercises; claims to prove, no proofs, forward and backward \
+depends_on; one exercise is a construction task with no assertable statement and must be \
+skipped entirely):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): book \
+"A Course in Measure-Theoretic Probability", Chapter 5: Integration and convergence, \
+End-of-chapter exercises.
+
+5.9 EXERCISE. Suppose f_n → f in measure and each f_n is dominated by a single integrable \
+function g independent of n. Show that ∫f_n dμ → ∫f dμ, citing the Dominated convergence \
+theorem (Theorem 5.3) and Egorov's theorem (Theorem 4.11).
+
+5.10 EXERCISE. Give an example of a sequence of measurable functions converging pointwise \
+but not in L^1, showing that the domination hypothesis in Theorem 5.3 cannot simply be dropped.
+
+5.11 EXERCISE. Using Fatou's lemma (Lemma 5.1), show that if f_n ≥ 0 and f_n → f a.e., then \
+∫f dμ ≤ liminf ∫f_n dμ, and give an example where the inequality is strict.
+---
+EXAMPLE OUTPUT:
+{"concepts": [{"name": "convergence in measure", "kind": "concept"},
+              {"name": "dominated convergence theorem", "kind": "concept"},
+              {"name": "Egorov's theorem", "kind": "concept"},
+              {"name": "Fatou's lemma", "kind": "concept"}],
+ "definitions": [],
+ "results": [{"name": "5.9 EXERCISE.", "kind": "proposition",
+   "statement": "Suppose $f_n \\\\to f$ in measure and each $f_n$ is dominated by a single integrable function $g$ independent of $n$. Then $\\\\int f_n\\\\,d\\\\mu \\\\to \\\\int f\\\\,d\\\\mu$.",
+   "uses": ["convergence in measure", "dominated convergence theorem"],
+   "depends_on": ["Theorem 5.3", "Theorem 4.11"],
+   "proof": null, "proof_present": false, "statement_complete": true},
+  {"name": "5.11 EXERCISE.", "kind": "proposition",
+   "statement": "If $f_n \\\\ge 0$ and $f_n \\\\to f$ a.e., then $\\\\int f\\\\,d\\\\mu \\\\le \\\\liminf \\\\int f_n\\\\,d\\\\mu$, and the inequality can be strict.",
+   "uses": ["Fatou's lemma"],
+   "depends_on": ["Lemma 5.1"],
+   "proof": null, "proof_present": false, "statement_complete": true}],
+ "notations": []}
+
+EXAMPLE INPUT (paper abstract; method concepts + notation introduction, no results):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): paper \
+"Rectified Flow Matching for Conditional Generation", Abstract.
+
+We propose Rectified Flow Matching (RFM), a simulation-free method for training continuous \
+normalizing flows that transports a source distribution π_0 to a target π_1 along \
+straight-line paths. Given paired samples (x_0, x_1) drawn from a coupling of π_0 and π_1, we \
+train a velocity field v_θ(x_t, t) to match the constant drift x_1 - x_0 along the linear \
+interpolant x_t = (1-t) x_0 + t x_1, t ∈ [0,1]. We write ρ_t for the marginal density of x_t \
+under the coupling, and denote by u*(x,t) the marginal velocity field satisfying the \
+continuity equation ∂_t ρ_t + ∇·(ρ_t u*) = 0. Empirically, iterating the reflow procedure — \
+retraining on straightened couplings produced by the current model — reduces the number of \
+function evaluations needed at sampling time relative to standard flow matching.
+---
+EXAMPLE OUTPUT:
+{"concepts": [{"name": "Rectified Flow Matching", "kind": "method"},
+              {"name": "flow matching", "kind": "method"},
+              {"name": "continuous normalizing flow", "kind": "concept"},
+              {"name": "reflow", "kind": "method"}],
+ "definitions": [],
+ "results": [],
+ "notations": [{"symbol_latex": "$v_\\\\theta(x_t, t)$",
+                "meaning": "the trained velocity field approximating the marginal velocity along the interpolant",
+                "concept": "Rectified Flow Matching"},
+               {"symbol_latex": "$x_t$",
+                "meaning": "the linear interpolant $(1-t) x_0 + t x_1$ between paired samples $x_0 \\\\sim \\\\pi_0$ and $x_1 \\\\sim \\\\pi_1$",
+                "concept": "Rectified Flow Matching"},
+               {"symbol_latex": "$\\\\rho_t$",
+                "meaning": "the marginal density of $x_t$ under the coupling",
+                "concept": ""},
+               {"symbol_latex": "$u^*(x,t)$",
+                "meaning": "the marginal velocity field satisfying $\\\\partial_t \\\\rho_t + \\\\nabla\\\\cdot(\\\\rho_t u^*) = 0$",
+                "concept": ""}]}
+
+EXAMPLE INPUT (front-matter notation guide — a list of symbols IS content, unlike a table \
+of contents or index):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): book \
+"A Course in Measure-Theoretic Probability", Front matter: List of symbols.
+
+List of symbols
+
+Ω: the sample space, the underlying set of outcomes.
+F: a σ-algebra of subsets of Ω, the collection of events.
+P: a probability measure on (Ω, F).
+E[X]: the expectation of a random variable X.
+1_A: the indicator function of a set A, equal to 1 on A and 0 off A.
+a.s.: almost surely, i.e. with probability one.
+---
+EXAMPLE OUTPUT:
+{"concepts": [{"name": "sample space", "kind": "concept"},
+              {"name": "probability measure", "kind": "concept"},
+              {"name": "expectation", "kind": "concept"},
+              {"name": "indicator function", "kind": "concept"}],
+ "definitions": [],
+ "results": [],
+ "notations": [{"symbol_latex": "$\\\\Omega$",
+                "meaning": "the sample space, the underlying set of outcomes",
+                "concept": "sample space"},
+               {"symbol_latex": "$\\\\mathcal{F}$",
+                "meaning": "a $\\\\sigma$-algebra of subsets of $\\\\Omega$, the collection of events",
+                "concept": ""},
+               {"symbol_latex": "$P$",
+                "meaning": "a probability measure on $(\\\\Omega, \\\\mathcal{F})$",
+                "concept": "probability measure"},
+               {"symbol_latex": "$E[X]$",
+                "meaning": "the expectation of a random variable $X$",
+                "concept": "expectation"},
+               {"symbol_latex": "$1_A$",
+                "meaning": "the indicator function of a set $A$, equal to 1 on $A$ and 0 off $A$",
+                "concept": "indicator function"},
+               {"symbol_latex": "a.s.", "meaning": "almost surely, i.e. with probability one",
+                "concept": ""}]}
+
+EXAMPLE INPUT (table of contents — non-content, must yield a fully empty extraction):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): book \
+"A Course in Measure-Theoretic Probability", Front matter: Table of contents.
+
+Contents
+
+1 Measure spaces ..................................................... 1
+  1.1 σ-algebras ...................................................... 1
+  1.2 Measures and their properties ................................... 8
+2 Integration ........................................................ 19
+  2.1 Simple functions ................................................ 19
+  2.2 The integral of a non-negative function ......................... 24
+  2.3 Convergence theorems ............................................ 35
+3 Independence and product measures .................................. 51
+Bibliography ......................................................... 398
+Index ................................................................ 401
+---
+EXAMPLE OUTPUT:
+{"concepts": [], "definitions": [], "results": [], "notations": []}
+
+EXAMPLE INPUT (two results in one chunk; a corollary depends_on a theorem from the SAME \
+chunk, both with visible proofs):
+---
+Context (metadata about where this chunk comes from — NOT part of the source text): book \
+"A Course in Measure-Theoretic Probability", Chapter 6: Product measures, Section 6.3 \
+Fubini's theorem.
+
+6.7. THEOREM (Fubini). Let (X, A, μ) and (Y, B, ν) be σ-finite measure spaces and let f be \
+integrable on the product (X×Y, A⊗B, μ⊗ν). Then the iterated integrals ∫_X(∫_Y f(x,y) dν(y)) \
+dμ(x) and ∫_Y(∫_X f(x,y) dμ(x)) dν(y) both exist and equal ∫_{X×Y} f d(μ⊗ν).
+
+Proof. First establish the identity for f = 1_E with E a measurable rectangle, then extend to \
+the generating π-system by Dynkin's π-λ theorem, and finally to general integrable f by \
+writing f = f^+ - f^- and applying the monotone convergence theorem to increasing simple \
+approximations.
+
+6.8. COROLLARY. If f ≥ 0 is measurable on X×Y (not assumed integrable), the same \
+iterated-integral identity holds in [0,∞], with no integrability hypothesis needed, by \
+Theorem 6.7 applied to min(f,n) and monotone convergence.
+---
+EXAMPLE OUTPUT:
+{"concepts": [{"name": "Fubini's theorem", "kind": "concept"},
+              {"name": "σ-finite measure space", "kind": "concept"},
+              {"name": "product measure", "kind": "concept"},
+              {"name": "π-λ theorem", "kind": "concept"}],
+ "definitions": [],
+ "results": [{"name": "6.7. THEOREM (Fubini).", "kind": "theorem",
+   "statement": "Let $(X, \\\\mathcal A, \\\\mu)$ and $(Y, \\\\mathcal B, \\\\nu)$ be $\\\\sigma$-finite measure spaces and let $f$ be integrable on the product $(X\\\\times Y, \\\\mathcal A\\\\otimes\\\\mathcal B, \\\\mu\\\\otimes\\\\nu)$. Then the iterated integrals $\\\\int_X\\\\big(\\\\int_Y f(x,y)\\\\,d\\\\nu(y)\\\\big)d\\\\mu(x)$ and $\\\\int_Y\\\\big(\\\\int_X f(x,y)\\\\,d\\\\mu(x)\\\\big)d\\\\nu(y)$ both exist and equal $\\\\int_{X\\\\times Y} f\\\\,d(\\\\mu\\\\otimes\\\\nu)$.",
+   "uses": ["σ-finite measure space", "product measure"], "depends_on": [],
+   "proof": {"sketch": "Establish the identity first for indicators of measurable rectangles, extend it to the generating $\\\\pi$-system via Dynkin's $\\\\pi$-$\\\\lambda$ theorem, then pass to a general integrable $f$ by splitting $f = f^+ - f^-$ and applying the monotone convergence theorem to increasing simple approximations.",
+             "technique": "$\\\\pi$-$\\\\lambda$ theorem + monotone convergence"},
+   "proof_present": true, "statement_complete": true},
+  {"name": "6.8. COROLLARY.", "kind": "corollary",
+   "statement": "If $f \\\\ge 0$ is measurable on $X\\\\times Y$ (not assumed integrable), the same iterated-integral identity holds in $[0,\\\\infty]$, with no integrability hypothesis needed.",
+   "uses": ["product measure"], "depends_on": ["Theorem 6.7"],
+   "proof": {"sketch": "Apply Theorem 6.7 to the integrable truncations $\\\\min(f, n)$ and pass to the limit in $n$ by monotone convergence.",
+             "technique": "truncation + monotone convergence"},
+   "proof_present": true, "statement_complete": true}],
+ "notations": []}"""  # noqa: RUF001
 
 
 def parse_extraction(payload: dict) -> ExtractionResult:
