@@ -21,21 +21,28 @@ def chunk_with_context(book_title: str, chapter: dict, section: dict, text: str)
 
 
 def attach_pages(merged: ExtractionResult,
-                 chunk_extractions: list[tuple[ExtractionResult, int]],
-                 ) -> tuple[list[dict], list[dict]]:
+                 chunk_extractions: list[tuple[ExtractionResult, int, int]],
+                 ) -> tuple[list[dict], list[dict], list[dict]]:
+    """Attach first-seen page to each merged definition/result; collect per-chunk proof
+    locations. chunk_extractions tuples are (extraction, page_start, chunk_position)."""
     def_pages: dict[str, int] = {}
     res_pages: dict[tuple[str, str], int] = {}
-    for er, page in chunk_extractions:
+    proof_rows: list[dict] = []
+    for er, page, position in chunk_extractions:
         for d in er.definitions:
             def_pages.setdefault(normalize_statement(d.statement), page)
         for r in er.results:
-            res_pages.setdefault((r.kind, normalize_statement(r.statement)), page)
+            key = (r.kind, normalize_statement(r.statement))
+            res_pages.setdefault(key, page)
+            if r.proof_present:
+                proof_rows.append({"result_key": list(key), "label": r.name,
+                                   "position": position})
     defs = [{**d.model_dump(), "page": def_pages.get(normalize_statement(d.statement))}
             for d in merged.definitions]
     results = [{**r.model_dump(),
                 "page": res_pages.get((r.kind, normalize_statement(r.statement)))}
                for r in merged.results]
-    return defs, results
+    return defs, results, proof_rows
 
 
 def flatten_concepts(section_merges: list[ExtractionResult]) -> list[dict]:
