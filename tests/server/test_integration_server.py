@@ -60,3 +60,29 @@ def test_write_attempt_fails_readonly(graph):
     """The READ_ACCESS session (and, once created, the read-only user) must refuse writes."""
     with pytest.raises(Exception):
         graph.read("CREATE (x:KgWriteProbe) RETURN x")
+
+
+def test_run_cypher_write_attempt_rejected_by_guard(mcp):
+    """run_cypher's courtesy guard must raise ValueError before ever reaching the driver."""
+    with pytest.raises(Exception, match="read-only"):
+        _call(mcp, "run_cypher", {"query": "CREATE (n)"})
+
+
+def test_read_limited_write_blocked_by_driver_not_just_guard(graph):
+    """read_limited is the ACTUAL run_cypher execution path — an autocommit run on a READ_ACCESS
+    session, a different enforcement path from graph.read's managed read-transaction. Verify the
+    driver itself refuses a write here, using a query the string-level guard would NOT catch (no
+    write keyword in scannable text), so this exercises driver routing, not check_read_only."""
+    with pytest.raises(Exception):
+        # CALL apoc.create.node would write, but we cannot rely on apoc; instead use a plain
+        # write that the guard is bypassed for by construction: call read_limited directly with a
+        # CREATE (the guard lives in the tool layer, not in read_limited).
+        graph.read_limited("CREATE (x:KgWriteProbe) RETURN x")
+
+
+def test_read_limited_char_budget_truncates(graph):
+    """A single aggregating row must not return unbounded payload: the char budget trips
+    truncated=True rather than buffering the whole graph into one record."""
+    rows, truncated = graph.read_limited(
+        "MATCH (c:Chunk) RETURN collect(c.text) AS blob", max_chars=1000)
+    assert truncated is True

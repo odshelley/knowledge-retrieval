@@ -1,0 +1,107 @@
+[
+  {
+    "id": "count-papers",
+    "question": "How many papers are in the corpus?",
+    "ground_truth_cypher": "MATCH (p:Paper) RETURN count(p) AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "most-cited",
+    "question": "Which paper in the corpus is cited by the most other papers in the corpus?",
+    "ground_truth_cypher": "MATCH (:Paper)-[:CITES]->(p:Paper) RETURN p.title AS answer, count(*) AS n ORDER BY n DESC LIMIT 1",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "top-concept",
+    "question": "Which concept is discussed by the most papers?",
+    "ground_truth_cypher": "MATCH (p:Paper)-[:DISCUSSES]->(c:Concept) RETURN c.name AS answer, count(p) AS n ORDER BY n DESC LIMIT 1",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "newest-paper",
+    "question": "What is the most recent paper in the corpus?",
+    "ground_truth_cypher": "MATCH (p:Paper) RETURN p.title AS answer ORDER BY coalesce(p.year,0) DESC LIMIT 1",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "theorem-count",
+    "question": "How many theorems (as opposed to lemmas or propositions) have been extracted across the corpus?",
+    "ground_truth_cypher": "MATCH (r:Result {kind:'theorem'}) RETURN count(r) AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "case-variant",
+    "question": "which papers discuss brownian motion?",
+    "ground_truth_cypher": "MATCH (p:Paper)-[:DISCUSSES]->(c:Concept) WHERE toLower(c.name) = 'brownian motion' RETURN collect(p.title) AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "multi-hop-deps",
+    "question": "Pick any theorem that depends on at least one other result and name what it depends on.",
+    "ground_truth_cypher": "MATCH (r:Result)-[:DEPENDS_ON]->(d:Result) RETURN r.name AS theorem, collect(d.name) AS answer LIMIT 1",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "missing-oscars",
+    "question": "Which paper in the corpus won a Nobel prize?",
+    "ground_truth_cypher": "RETURN 'This information is not in the corpus' AS answer",
+    "expected_behavior": "refuse",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "missing-offtopic",
+    "question": "What is the current price of NVDA stock?",
+    "ground_truth_cypher": "RETURN 'Out of scope for this corpus' AS answer",
+    "expected_behavior": "refuse",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "author-most",
+    "question": "Which author has the most papers in the corpus?",
+    "ground_truth_cypher": "MATCH (a:Author)-[:AUTHORED]->(:Paper) RETURN a.name AS answer, count(*) AS n ORDER BY n DESC LIMIT 1",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "define-brownian-motion",
+    "question": "What is the definition of Brownian motion?",
+    "ground_truth_cypher": "MATCH (d:Definition)-[:DEFINES]->(c:Concept) WHERE toLower(c.name)=toLower('Brownian motion') RETURN collect(d.statement)[..3] AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": true
+  },
+  {
+    "id": "define-sde",
+    "question": "What is the definition of Stochastic Differential Equation?",
+    "ground_truth_cypher": "MATCH (d:Definition)-[:DEFINES]->(c:Concept) WHERE toLower(c.name)=toLower('Stochastic Differential Equation') RETURN collect(d.statement)[..3] AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": true
+  },
+  {
+    "id": "define-gaussian-distribution",
+    "question": "What is the definition of Gaussian distribution?",
+    "ground_truth_cypher": "MATCH (d:Definition)-[:DEFINES]->(c:Concept) WHERE toLower(c.name)=toLower('Gaussian distribution') RETURN collect(d.statement)[..3] AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": true
+  },
+  {
+    "id": "cross-brownian-sde",
+    "question": "Which papers discuss both Brownian motion and Stochastic Differential Equation?",
+    "ground_truth_cypher": "MATCH (p:Paper)-[:DISCUSSES]->(a:Concept), (p)-[:DISCUSSES]->(b:Concept) WHERE toLower(a.name)=toLower('Brownian motion') AND toLower(b.name)=toLower('Stochastic Differential Equation') RETURN collect(p.title) AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  },
+  {
+    "id": "cross-brownian-gaussian",
+    "question": "Which papers discuss both Brownian motion and Gaussian distribution?",
+    "ground_truth_cypher": "MATCH (p:Paper)-[:DISCUSSES]->(a:Concept), (p)-[:DISCUSSES]->(b:Concept) WHERE toLower(a.name)=toLower('Brownian motion') AND toLower(b.name)=toLower('Gaussian distribution') RETURN collect(p.title) AS answer",
+    "expected_behavior": "answer",
+    "retrieval_answerable": false
+  }
+]

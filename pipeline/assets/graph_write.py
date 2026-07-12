@@ -9,6 +9,7 @@ import json
 
 from dagster import MaterializeResult, MetadataValue, asset
 
+from pipeline.embedding import embed_texts
 from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.resolution.resolver import upsert_embedding, upsert_alias
 from pipeline.runtime.storage import CHUNKS_BUCKET, EXTRACTED_BUCKET, TRIAGE_BUCKET
@@ -28,7 +29,8 @@ def result_id(paper_id: str, kind: str, statement: str) -> str:
 
 
 def concept_rows(concepts: list[dict]) -> list[dict]:
-    return [{"name": c["name"], "tags": [c["kind"]]} for c in concepts]
+    return [{"name": c["name"], "tags": [c["kind"]],
+             "description": c.get("description", "")} for c in concepts]
 
 
 def definition_rows(paper_id: str, defs: list[dict]) -> list[dict]:
@@ -107,6 +109,36 @@ def depends_on_edge_rows(paper_id: str, results: list[dict],
     return rows, skipped
 
 
+def mention_rows(provenance: dict, surface_to_canon: dict[str, str]) -> tuple[list[dict], int]:
+    """Chunk-MENTIONS->Concept rows from extraction provenance, mapped through the resolver's
+    surface->canonical table (lowercased keys). Skips surfaces with no canonical."""
+    rows, skipped = [], 0
+    for surface_l, cids in provenance.get("concepts", {}).items():
+        canon = surface_to_canon.get(surface_l)
+        if canon is None:
+            skipped += 1
+            continue
+        rows.extend({"chunk_id": cid, "canonical": canon} for cid in cids)
+    return rows, skipped
+
+
+def extracted_from_rows(paper_id: str, raw_defs: list[dict], raw_results: list[dict],
+                        provenance: dict) -> tuple[list[dict], list[dict]]:
+    """Definition/Result -EXTRACTED_FROM-> Chunk rows; node ids recomputed with the same
+    content-hash scheme the node writers use, provenance looked up by the same keys."""
+    drows = []
+    for d in raw_defs:
+        k = normalize_statement(d["statement"])
+        drows.extend({"node_id": def_id(paper_id, d["statement"]), "chunk_id": cid}
+                     for cid in provenance.get("definitions", {}).get(k, []))
+    rrows = []
+    for r in raw_results:
+        k = f"{r['kind']}|{normalize_statement(r['statement'])}"
+        rrows.extend({"node_id": result_id(paper_id, r["kind"], r["statement"]), "chunk_id": cid}
+                     for cid in provenance.get("results", {}).get(k, []))
+    return drows, rrows
+
+
 # --- Cypher -------------------------------------------------------------------
 WRITE_CHUNKS = """
 MERGE (d:Document {id:$doc_id}) SET d.paper_id = $paper_id
@@ -129,6 +161,8 @@ MATCH (p:Paper {id:$paper_id})
 UNWIND $rows AS row
   MERGE (c:Concept {name: row.name})
   SET c.tags = row.tags
+  SET c.description = coalesce(c.description,
+        CASE WHEN row.description = '' THEN NULL ELSE row.description END)
   MERGE (p)-[:DISCUSSES]->(c)
   MERGE (c)-[:DERIVED_FROM]->(p)
 """
@@ -179,12 +213,60 @@ UNWIND $rows AS row
   MERGE (r1)-[:DEPENDS_ON]->(r2)
 """
 
+# Provenance edges are keyed to positional chunk ids ({doc}:{i}). On re-materialization after a
+# re-chunk, WRITE_CHUNKS overwrites a reused chunk id's text in place, but MERGE-only provenance
+# writes would leave the previous run's MENTIONS/EXTRACTED_FROM attached to that now-different
+# text. Clear this document's provenance edges first so each run's writes are authoritative.
+CLEAR_DOC_PROVENANCE = """
+MATCH (d:Document {id: $doc_id})<-[:BELONGS_TO]-(ch:Chunk)
+CALL {
+  WITH ch
+  OPTIONAL MATCH (ch)-[m:MENTIONS]->()
+  OPTIONAL MATCH ()-[e:EXTRACTED_FROM]->(ch)
+  DELETE m, e
+}
+"""
+
+WRITE_MENTIONS = """
+UNWIND $rows AS row
+  MATCH (ch:Chunk {id: row.chunk_id})
+  MATCH (c:Concept {name: row.canonical})
+  MERGE (ch)-[:MENTIONS]->(c)
+"""
+
+WRITE_DEF_PROVENANCE = """
+UNWIND $rows AS row
+  MATCH (d:Definition {id: row.node_id})
+  MATCH (ch:Chunk {id: row.chunk_id})
+  MERGE (d)-[:EXTRACTED_FROM]->(ch)
+"""
+
+WRITE_RESULT_PROVENANCE = """
+UNWIND $rows AS row
+  MATCH (r:Result {id: row.node_id})
+  MATCH (ch:Chunk {id: row.chunk_id})
+  MERGE (r)-[:EXTRACTED_FROM]->(ch)
+"""
+
+CONCEPTS_NEEDING_EMBEDDING = """
+UNWIND $names AS name
+MATCH (c:Concept {name: name})
+WHERE c.embedding IS NULL AND c.description IS NOT NULL
+RETURN c.name AS name, c.description AS description
+"""
+
+SET_CONCEPT_EMBEDDINGS = """
+UNWIND $rows AS row
+MATCH (c:Concept {name: row.name})
+CALL db.create.setNodeVectorProperty(c, 'embedding', row.embedding)
+"""
+
 _MATCH_PENDING = ("ref_s2_id=%s OR ref_doi=%s OR ref_arxiv_id=%s OR ref_title_norm=%s")
 
 
 @asset(partitions_def=documents_partitions_def(),
        deps=["resolved_entities", "chunks", "triage_metadata"],
-       required_resource_keys={"minio", "neo4j_new", "postgres"})
+       required_resource_keys={"minio", "neo4j_new", "postgres", "openai"})
 def graph_write(context) -> MaterializeResult:
     key = context.partition_key
     s3 = context.resources.minio.get_client()
@@ -218,6 +300,29 @@ def graph_write(context) -> MaterializeResult:
         s.run(WRITE_DEFINES, rows=def_edges)
         s.run(WRITE_RESULT_USES, rows=use_edges)
         s.run(WRITE_RESULT_DEPENDS, rows=dep_edges)
+
+        provenance = resolved.get("provenance", {})  # absent on pre-change artifacts
+        m_rows, sk_mention = mention_rows(provenance, surface_to_canon)
+        dprov_rows, rprov_rows = extracted_from_rows(paper_id, raw_defs, raw_results, provenance)
+        # Drop this document's stale provenance edges before rewriting (re-materialization safety).
+        s.run(CLEAR_DOC_PROVENANCE, doc_id=key)
+        s.run(WRITE_MENTIONS, rows=m_rows)
+        s.run(WRITE_DEF_PROVENANCE, rows=dprov_rows)
+        s.run(WRITE_RESULT_PROVENANCE, rows=rprov_rows)
+
+        # Retrieval embedding: name+description, only for concepts that don't have one yet
+        # (first-wins, mirrors the description coalesce; keeps re-runs idempotent).
+        # Dedup names: crows carry one row per surface, so two surfaces resolving to the same
+        # canonical would otherwise embed the identical text twice.
+        need = s.run(CONCEPTS_NEEDING_EMBEDDING,
+                     names=sorted({c["name"] for c in crows})).data()
+        if need:
+            cfg = context.resources.openai
+            vecs = embed_texts(cfg.get_client(),
+                               [f"{r['name']}: {r['description']}" for r in need],
+                               model=cfg.embedding_model, timeout=cfg.request_timeout)
+            s.run(SET_CONCEPT_EMBEDDINGS,
+                  rows=[{"name": r["name"], "embedding": v} for r, v in zip(need, vecs)])
 
         with context.resources.postgres.connect() as conn:
             with conn.cursor() as cur:
@@ -269,4 +374,8 @@ def graph_write(context) -> MaterializeResult:
         "skipped_def_concepts": MetadataValue.int(sk_def),
         "skipped_use_concepts": MetadataValue.int(sk_use),
         "skipped_dep_results": MetadataValue.int(sk_dep),
+        "mentions": MetadataValue.int(len(m_rows)),
+        "skipped_mention_surfaces": MetadataValue.int(sk_mention),
+        "extracted_from": MetadataValue.int(len(dprov_rows) + len(rprov_rows)),
+        "concept_embeddings": MetadataValue.int(len(need)),
     })

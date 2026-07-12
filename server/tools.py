@@ -1,4 +1,6 @@
-"""The 8 typed read-only MCP tools. Synthesis is the caller's job; these only retrieve."""
+"""The 11 read-only MCP tools: 9 typed retrieval tools plus get_schema/run_cypher, a
+guarded Cypher escape hatch for questions no typed tool covers. Synthesis is the
+caller's job; these only retrieve."""
 from __future__ import annotations
 
 import json
@@ -8,6 +10,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from server import queries as q
 from server.graph import GraphClient
+from server.retrieve import search_chunks_core
 
 
 def build_mcp(graph: GraphClient) -> FastMCP:
@@ -20,24 +23,10 @@ def build_mcp(graph: GraphClient) -> FastMCP:
     @mcp.tool()
     def search_chunks(query: str, top_k: int = 8, expand: str = "local",
                       paper_id: str | None = None) -> dict:
-        """Vector-search paper chunks; expand='local' adds each hit paper's concepts,
-        definitions, results, and CITES neighbours; expand='concepts' pivots to the
-        top concepts across hits. Cite results as (paper_title, chunk position)."""
-        top_k = q.validate_top_k(top_k)
-        expand = q.validate_expand(expand)
-        emb = graph.embed(query)
-        k = top_k * 4 if paper_id else top_k
-        hits = graph.read(q.VECTOR_SEARCH, k=k, top_k=top_k,
-                          embedding=emb, paper_id=paper_id)
-        out: dict = {"chunks": hits}
-        paper_ids = sorted({h["paper_id"] for h in hits})
-        if expand == "local" and paper_ids:
-            out["papers"] = graph.read(q.EXPAND_LOCAL, paper_ids=paper_ids)
-        elif expand == "concepts" and paper_ids:
-            top = graph.read(q.TOP_CONCEPTS_FOR_PAPERS, paper_ids=paper_ids)
-            out["concepts"] = graph.read(
-                q.EXPAND_CONCEPTS, names=[t["name"] for t in top])
-        return out
+        """Hybrid (vector + keyword) search over paper chunks; expand='local' adds each
+        hit paper's concepts, definitions, results, and CITES neighbours; expand='concepts'
+        pivots to the top concepts across hits. Cite results as (paper_title, chunk position)."""
+        return search_chunks_core(graph, query, top_k, expand, paper_id)
 
     @mcp.tool()
     def get_paper(key: str) -> dict:
@@ -66,6 +55,15 @@ def build_mcp(graph: GraphClient) -> FastMCP:
         discuss it, and co-discussed related concepts."""
         rows = graph.read(q.GET_CONCEPT, name=name)
         return rows[0] if rows else {"found": False, "name": name}
+
+    @mcp.tool()
+    def search_concepts(query: str, top_k: int = 8) -> dict:
+        """Vector-search Concept nodes by their descriptions (entity-anchored entry point).
+        Follow up with get_concept(name) for definitions, papers, and supporting chunks."""
+        top_k = q.validate_top_k(top_k)
+        hits = graph.read(q.SEARCH_CONCEPTS, k=top_k * 2, top_k=top_k,
+                          embedding=graph.embed(query))
+        return {"concepts": hits}
 
     @mcp.tool()
     def get_results(concept: str | None = None, paper_id: str | None = None,
@@ -102,5 +100,21 @@ def build_mcp(graph: GraphClient) -> FastMCP:
         return {"counts": counts[0] if counts else {},
                 "top_concepts": graph.read(q.OVERVIEW_TOP_CONCEPTS),
                 "recent_papers": graph.read(q.OVERVIEW_RECENT)}
+
+    @mcp.tool()
+    def get_schema() -> dict:
+        """The graph's node labels, relationship patterns, and key properties.
+        Read this before writing a run_cypher query."""
+        return {"schema": q.render_schema()}
+
+    @mcp.tool()
+    def run_cypher(query: str) -> dict:
+        """Read-only Cypher escape hatch for aggregations and questions no typed tool
+        covers (counts, rankings, filters, multi-hop). The session is read-only at the
+        driver level; rows are capped at 100 with a 15s timeout. Call get_schema first
+        and use only the labels/relationships it lists."""
+        q.check_read_only(query)
+        rows, truncated = graph.read_limited(query)
+        return {"rows": rows, "row_count": len(rows), "truncated": truncated}
 
     return mcp

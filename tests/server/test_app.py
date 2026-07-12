@@ -84,5 +84,5 @@ def test_tools_are_registered():
     tools = anyio.run(mcp.list_tools)
     names = {t.name for t in tools}
     assert names == {"search_chunks", "get_paper", "search_papers", "get_concept",
-                     "get_results", "get_dependency_chain", "get_citations",
-                     "get_corpus_overview"}
+                     "search_concepts", "get_results", "get_dependency_chain",
+                     "get_citations", "get_corpus_overview", "get_schema", "run_cypher"}

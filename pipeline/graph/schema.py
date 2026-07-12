@@ -58,6 +58,8 @@ RELATIONSHIP_TYPES = [
     "HAS_CHAPTER",
     "HAS_SECTION",
     "PART_OF",
+    "MENTIONS",
+    "EXTRACTED_FROM",
     "INTRODUCED_IN",
     "DENOTES",
     "HAS_PROOF",
@@ -109,10 +111,13 @@ PATTERNS: list[tuple[str, str, str]] = [
     ("Chunk",      "PART_OF",      "Section"),
     ("Section",    "STATES",       "Definition"),
     ("Section",    "STATES",       "Result"),
-    ("Notation",   "INTRODUCED_IN","Section"),
-    ("Notation",   "DENOTES",      "Concept"),
-    ("Result",     "HAS_PROOF",    "Proof"),
-    ("Result",     "PROVED_IN",    "Chunk"),
+    ("Chunk",      "MENTIONS",       "Concept"),
+    ("Definition", "EXTRACTED_FROM", "Chunk"),
+    ("Result",     "EXTRACTED_FROM", "Chunk"),
+    ("Notation",   "INTRODUCED_IN",  "Section"),
+    ("Notation",   "DENOTES",        "Concept"),
+    ("Result",     "HAS_PROOF",      "Proof"),
+    ("Result",     "PROVED_IN",      "Chunk"),
 ]
 
 INIT_CYPHER = """
@@ -151,6 +156,18 @@ CREATE INDEX paper_doi IF NOT EXISTS
 
 CREATE VECTOR INDEX chunk_embedding IF NOT EXISTS
   FOR (c:Chunk) ON c.embedding
+  OPTIONS {
+    indexConfig: {
+      `vector.dimensions`: 1536,
+      `vector.similarity_function`: 'cosine'
+    }
+  };
+
+CREATE FULLTEXT INDEX chunk_text IF NOT EXISTS
+  FOR (c:Chunk) ON EACH [c.text];
+
+CREATE VECTOR INDEX concept_embedding IF NOT EXISTS
+  FOR (c:Concept) ON c.embedding
   OPTIONS {
     indexConfig: {
       `vector.dimensions`: 1536,

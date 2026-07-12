@@ -5,8 +5,67 @@ within the paper), not a section — cite as (paper, chunk position).
 """
 from __future__ import annotations
 
+import re
+
+from pipeline.graph.schema import NODE_TYPES, PATTERNS
+
 VALID_EXPAND = ("none", "local", "concepts")
 VALID_KINDS = ("theorem", "lemma", "proposition", "corollary")
+
+_WRITE_CLAUSE = re.compile(
+    r"\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|FOREACH|LOAD\s+CSV)\b", re.IGNORECASE)
+
+# Procedures the READ_ACCESS session STILL permits (they are read-mode) but that fetch external
+# URLs, touch the filesystem, run dynamic Cypher, or administer the DBMS. For these the driver's
+# write-routing is not a backstop, so this guard is the only defense (e.g. SSRF via apoc.load.*).
+_BANNED_PROC = re.compile(
+    r"\b(apoc\.(load|import|export|cypher|periodic|trigger|refactor|create|merge|atomic|systemdb|do)"
+    r"|dbms\.|db\.(create|drop|await))",
+    re.IGNORECASE)
+_IN_TRANSACTIONS = re.compile(r"\bIN\s+TRANSACTIONS\b", re.IGNORECASE)
+
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_LINE_COMMENT = re.compile(r"//[^\n]*")
+_STRING_LIT = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"")
+
+
+def _strip_noise(cypher: str) -> str:
+    """Blank out comments and string literals before keyword/procedure scanning, so a write
+    clause can't hide in a comment (LOAD/**/CSV) and a literal containing a keyword
+    (CONTAINS 'level set') can't trip a false positive. Comments collapse to a space so
+    surrounding tokens can't fuse; literals collapse to an empty quote."""
+    s = _BLOCK_COMMENT.sub(" ", cypher)
+    s = _LINE_COMMENT.sub(" ", s)
+    return _STRING_LIT.sub("''", s)
+
+
+def check_read_only(cypher: str) -> None:
+    """Guard for run_cypher. The driver READ_ACCESS session blocks node/edge writes, but it does
+    NOT block read-mode external fetch (LOAD CSV, apoc.load.*), dynamic Cypher, or admin
+    procedures, so this guard is the real defense against those (SSRF/side effects). Comments and
+    string literals are stripped first so the checks are neither bypassable nor false-tripping."""
+    s = _strip_noise(cypher)
+    m = _WRITE_CLAUSE.search(s)
+    if m:
+        raise ValueError(f"run_cypher is read-only; found write clause {m.group(1)!r}")
+    m = _BANNED_PROC.search(s)
+    if m:
+        raise ValueError(
+            f"run_cypher forbids procedure {m.group(0)!r} (external fetch / write / admin)")
+    if _IN_TRANSACTIONS.search(s):
+        raise ValueError("run_cypher forbids CALL ... IN TRANSACTIONS")
+
+
+def render_schema() -> str:
+    lines = ["Node labels: " + ", ".join(NODE_TYPES), "", "Relationships:"]
+    lines += [f"(:{s})-[:{r}]->(:{e})" for s, r, e in PATTERNS]
+    lines += ["", "Key properties: Paper{id,title,year,doi,arxiv_id,abstract,tldr,citation_count}, "
+              "Concept{name,description,tags}, Definition{id,term,statement}, "
+              "Result{id,kind,name,statement}, Chunk{id,text,position}, "
+              "Notation{id,symbol_latex,meaning}, Proof{id,sketch,technique}, "
+              "Book{id,title}, Chapter/Section{id,title}.",
+              "Only Topic/Researcher/Idea are in the vocabulary but not yet populated."]
+    return "\n".join(lines)
 
 
 def validate_top_k(k: int | None) -> int:
@@ -47,6 +106,54 @@ def merge_paper_hits(title_rows: list[dict], vector_rows: list[dict], top_k: int
         out.append(row)
     return out[:top_k]
 
+
+_LUCENE_SPECIAL = set('+-&|!(){}[]^"~*?:\\/')
+_LUCENE_OPERATORS = {"AND", "OR", "NOT"}
+
+
+def lucene_escape(q: str) -> str:
+    """Turn a natural-language question into a literal term query. Escapes Lucene special
+    characters AND neutralizes the bare boolean keywords AND/OR/NOT (lowercased), which are not
+    special characters but are parsed as operators by the classic QueryParser — leaving them
+    live turns the search into an unintended boolean query or, in an invalid position (leading
+    OR, trailing AND), throws a ParseException that fails the whole fulltext call."""
+    escaped = "".join("\\" + ch if ch in _LUCENE_SPECIAL else ch for ch in q)
+    return " ".join(tok.lower() if tok in _LUCENE_OPERATORS else tok
+                    for tok in escaped.split(" "))
+
+
+_RRF_K = 60
+
+
+def merge_chunk_hits(vector_rows: list[dict], fulltext_rows: list[dict],
+                     top_k: int) -> list[dict]:
+    """Hybrid merge via reciprocal-rank fusion. Vector scores (0..1 cosine) and Lucene scores
+    (unbounded) are incomparable, and per-list max-normalization inflates a single weak hit to
+    1.0 — a lone marginal keyword match would then outrank strong vector hits. RRF uses only each
+    hit's RANK within its own list (1/(k+rank)), so a chunk is promoted by appearing high in one
+    list and/or in both, never by a lone list's absolute score. Dedup by chunk_id summing the
+    per-list contributions; the merged `score` is the RRF score."""
+    fused: dict[str, dict] = {}
+    for rows in (vector_rows, fulltext_rows):
+        for rank, r in enumerate(rows):
+            contrib = 1.0 / (_RRF_K + rank)
+            cur = fused.get(r["chunk_id"])
+            if cur is None:
+                fused[r["chunk_id"]] = {**r, "score": contrib}
+            else:
+                cur["score"] += contrib
+    return sorted(fused.values(), key=lambda r: -r["score"])[:top_k]
+
+
+FULLTEXT_SEARCH = """
+CALL db.index.fulltext.queryNodes('chunk_text', $q) YIELD node, score
+MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(p:Paper)
+WHERE $paper_id IS NULL OR p.id = $paper_id
+RETURN node.id AS chunk_id, node.text AS text, node.position AS position, score,
+       p.id AS paper_id, p.title AS paper_title, p.year AS year
+ORDER BY score DESC
+LIMIT $top_k
+"""
 
 VECTOR_SEARCH = """
 CALL db.index.vector.queryNodes('chunk_embedding', $k, $embedding)
@@ -144,8 +251,23 @@ OPTIONAL MATCH (p2)-[:DISCUSSES]->(other:Concept)
 WHERE other.name <> c.name
 WITH c, definitions, papers, other.name AS oname, count(DISTINCT p2) AS shared
 ORDER BY shared DESC
-RETURN c.name AS name, c.tags AS tags, definitions, papers,
-       collect(oname)[..10] AS related_concepts
+WITH c, definitions, papers, collect(oname)[..10] AS related_concepts
+OPTIONAL MATCH (ch:Chunk)-[:MENTIONS]->(c)
+WITH c, definitions, papers, related_concepts, collect(DISTINCT ch) AS chs
+WITH c, definitions, papers, related_concepts,
+     [x IN chs | {chunk_id: x.id, position: x.position,
+                  text: left(x.text, 600)}][..5] AS supporting_chunks
+RETURN c.name AS name, c.tags AS tags, c.description AS description,
+       definitions, papers, related_concepts, supporting_chunks
+"""
+
+SEARCH_CONCEPTS = """
+CALL db.index.vector.queryNodes('concept_embedding', $k, $embedding)
+YIELD node, score
+RETURN node.name AS name, node.description AS description,
+       node.tags AS tags, score
+ORDER BY score DESC
+LIMIT $top_k
 """
 
 GET_RESULTS = """

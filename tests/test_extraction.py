@@ -1,8 +1,8 @@
 import pytest
 
 from pipeline.extraction.extraction import (
-    ExtractionResult, parse_extraction, merge_results,
-    Concept, Definition, Result, SYSTEM_PROMPT,
+    ExtractionResult, parse_extraction, merge_results, merge_results_with_provenance,
+    Concept, Definition, Result, Notation, ProofSketch, SYSTEM_PROMPT,
 )
 
 def test_parse_extraction_reads_concepts_with_kind():
@@ -141,9 +141,44 @@ def test_system_prompt_states_both_rules():
     assert "Brownian motion" in SYSTEM_PROMPT  # the concept-vs-notation few-shot
 
 
-from pipeline.extraction.extraction import (
-    ExtractionResult, Notation, ProofSketch, parse_extraction,
-)
+def test_merge_results_with_provenance_tracks_chunk_ids():
+    p1 = ExtractionResult(
+        concepts=[Concept(name="Brownian motion")],
+        definitions=[Definition(term="BM", statement="A process with...")],
+        results=[Result(kind="theorem", statement="Every martingale...")])
+    p2 = ExtractionResult(concepts=[Concept(name="brownian motion")])  # dup, differing case
+    merged, prov = merge_results_with_provenance([p1, p2], ["doc:0", "doc:1"])
+    assert len(merged.concepts) == 1
+    assert prov["concepts"]["brownian motion"] == ["doc:0", "doc:1"]
+    from pipeline.text_norm import normalize_statement
+    assert prov["definitions"][normalize_statement("A process with...")] == ["doc:0"]
+    assert prov["results"]["theorem|" + normalize_statement("Every martingale...")] == ["doc:0"]
+
+
+def test_concept_description_first_nonempty_wins_on_merge():
+    p1 = ExtractionResult(concepts=[Concept(name="Rectified flow", description="")])
+    p2 = ExtractionResult(concepts=[Concept(
+        name="rectified flow", description="A method that straightens transport paths.")])
+    merged = merge_results([p1, p2])
+    assert len(merged.concepts) == 1
+    assert merged.concepts[0].description == "A method that straightens transport paths."
+
+
+def test_provenance_survives_label_collapse():
+    """A chunk that contributed a truncated same-label Result variant must keep its
+    EXTRACTED_FROM credit after #16's pass-2 (kind,label) statement collapse."""
+    trunc = ExtractionResult(results=[Result(
+        kind="lemma", name="3.4. Composition Lemma.", statement="Composition Lemma.",
+        statement_complete=False)])
+    full = ExtractionResult(results=[Result(
+        kind="lemma", name="3.4. Composition Lemma.",
+        statement="If $f$ is measurable and $g$ is Borel then $g\\circ f$ is measurable.",
+        statement_complete=True)])
+    merged, prov = merge_results_with_provenance([trunc, full], ["doc:0", "doc:1"])
+    from pipeline.text_norm import normalize_statement
+    assert len(merged.results) == 1
+    key = "lemma|" + normalize_statement(merged.results[0].statement)
+    assert prov["results"][key] == ["doc:0", "doc:1"]  # both chunks credited
 
 
 def test_v1_payload_still_validates():

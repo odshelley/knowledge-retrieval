@@ -140,3 +140,25 @@ def test_init_scripts_import_current_module_paths():
         text = pathlib.Path(script).read_text()
         assert "pipeline.schema" not in text.replace("pipeline.graph.schema", "")
         assert "pipeline.cypher" not in text.replace("pipeline.graph.cypher", "")
+
+
+def test_fulltext_chunk_index_in_init():
+    from pipeline.graph.schema import iter_init_statements
+    stmts = iter_init_statements()
+    assert any("FULLTEXT INDEX chunk_text" in s for s in stmts), (
+        "INIT_CYPHER must create the chunk_text full-text index (hybrid search depends on it)"
+    )
+
+
+def test_provenance_patterns_present():
+    from pipeline.graph.schema import PATTERNS, RELATIONSHIP_TYPES
+    assert "MENTIONS" in RELATIONSHIP_TYPES
+    assert "EXTRACTED_FROM" in RELATIONSHIP_TYPES
+    assert ("Chunk", "MENTIONS", "Concept") in PATTERNS
+    assert ("Definition", "EXTRACTED_FROM", "Chunk") in PATTERNS
+    assert ("Result", "EXTRACTED_FROM", "Chunk") in PATTERNS
+
+
+def test_concept_vector_index_in_init():
+    from pipeline.graph.schema import iter_init_statements
+    assert any("VECTOR INDEX concept_embedding" in s for s in iter_init_statements())
