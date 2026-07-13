@@ -172,3 +172,25 @@ def test_citation_ref_matching_by_title_and_arxiv():
     assert match_ref(by, ref2) == "arxiv:2011.13456"
     # no match
     assert match_ref(by, {"s2_id": "q", "doi": "x", "arxiv_id": "9999.0", "title_norm": "w"}) is None
+
+
+def test_multi_call_response_near_cap_gets_stub_not_execution():
+    """A response carrying several tool calls when calls is at the cap must still answer
+    every call id (protocol), but over-budget ones get the stub instead of executing."""
+    from scripts.eval_agent import BUDGET_EXHAUSTED
+
+    graph = FakeGraph()
+    def one_call(i):
+        return _msg(tool_calls=[_tool_call(f"c{i}", "run_cypher",
+                                           {"query": "MATCH (p:Paper) RETURN p"})])
+    # 5 single-call turns, then one turn with 3 calls (calls 6, 7, 8), then the answer
+    triple = _msg(tool_calls=[_tool_call("t1", "run_cypher", {"query": "MATCH (a) RETURN a"}),
+                              _tool_call("t2", "run_cypher", {"query": "MATCH (b) RETURN b"}),
+                              _tool_call("t3", "run_cypher", {"query": "MATCH (c) RETURN c"})])
+    oai = FakeOAI([one_call(i) for i in range(5)] + [triple, _msg(content="done")])
+    answer, trace, _ = answer_with_tools(oai, "m", graph, "q")
+    assert answer == "done"
+    assert len(trace) == 8                      # every call id answered
+    assert len(graph.cypher_seen) == 6          # but only 6 executed
+    assert trace[-1]["error"] == BUDGET_EXHAUSTED[:200]
+    assert trace[-2]["error"] == BUDGET_EXHAUSTED[:200]

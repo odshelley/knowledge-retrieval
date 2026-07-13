@@ -23,7 +23,7 @@
   {
     "id": "newest-paper",
     "question": "What is the most recent paper in the corpus?",
-    "ground_truth_cypher": "MATCH (p:Paper) WITH max(coalesce(p.year,0)) AS mx MATCH (p:Paper) WHERE coalesce(p.year,0) = mx RETURN collect(p.title) AS answer, mx AS year",
+    "ground_truth_cypher": "MATCH (p:Paper) WHERE p.year IS NOT NULL WITH max(p.year) AS mx MATCH (p:Paper) WHERE p.year = mx RETURN collect(p.title) AS answer, mx AS year",
     "expected_behavior": "answer",
     "retrieval_answerable": false
   },

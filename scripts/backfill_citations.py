@@ -110,6 +110,7 @@ def main() -> None:
             s2 = resolve_s2(p)
             if s2 and not p.get("s2"):
                 resolved += 1
+                by["s2"][s2] = p["id"]  # keep the in-memory index current for later refs
                 if not args.dry_run:
                     s.run("MATCH (p:Paper {id:$id}) SET p.s2_id = $s2", id=p["id"], s2=s2)
             if not s2:

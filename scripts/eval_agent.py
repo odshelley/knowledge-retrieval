@@ -16,6 +16,9 @@ _LABEL_TOKEN = re.compile(r":`?([A-Za-z_][A-Za-z0-9_]*)`?")
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 _KNOWN_TOKENS = set(q.NODE_TYPES) | {r for _, r, _ in q.PATTERNS}
 
+BUDGET_EXHAUSTED = ("error: tool-call budget exhausted — answer now with the evidence "
+                    "you already have.")
+
 EMPTY_ROWS_HINT = (
     "0 rows returned. Check your labels, relationship types, and filters against the "
     "get_schema output (they are case-sensitive) and retry with a corrected query."
@@ -140,7 +143,10 @@ def answer_with_tools_anthropic(client, model: str, graph, question: str,
         results = []
         for tu in tool_uses:
             calls += 1
-            result = execute_tool(graph, tu.name, dict(tu.input))
+            # A multi-tool-call response near the cap must still answer every tool_use id
+            # (protocol requirement), but over-budget calls get a stub instead of executing.
+            result = (BUDGET_EXHAUSTED if calls > max_tool_calls
+                      else execute_tool(graph, tu.name, dict(tu.input)))
             trace.append({"tool": tu.name, "args": dict(tu.input),
                           "result_chars": len(result),
                           "error": result[:200] if result.startswith("error:") else None})
@@ -179,7 +185,10 @@ def answer_with_tools(oai, model: str, graph, question: str,
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result = execute_tool(graph, tc.function.name, args)
+            # Over-budget calls in a multi-call response get a stub (every tool_call_id
+            # still needs a tool message) instead of executing.
+            result = (BUDGET_EXHAUSTED if calls > max_tool_calls
+                      else execute_tool(graph, tc.function.name, args))
             trace.append({"tool": tc.function.name, "args": args,
                           "result_chars": len(result),
                           "error": result[:200] if result.startswith("error:") else None})
