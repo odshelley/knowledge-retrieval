@@ -97,3 +97,19 @@ def test_search_chunks_reaches_book_content(mcp, graph):
     assert book_hits, f"no book chunks in hits: {[c['paper_title'] for c in out['chunks']]}"
     assert book_hits[0]["section"] is not None
     assert book_hits[0]["chapter"] is not None
+
+
+def test_get_concept_returns_book_definition(mcp):
+    """'martingale' is defined in Williams; its definition entry must cite the book."""
+    import json
+    out = _call(mcp, "get_concept", {"name": "martingale"})
+    # MCP wraps the result in TextContent; extract the JSON from it
+    if isinstance(out, list):
+        result_text = out[0].text
+        data = json.loads(result_text)
+    else:
+        data = out
+    defs = data["definitions"]
+    book_defs = [d for d in defs if d.get("source_type") == "book"]
+    assert book_defs, f"no book-sourced definitions: {defs}"
+    assert book_defs[0]["section"] is not None

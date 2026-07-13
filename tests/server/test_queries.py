@@ -206,3 +206,10 @@ def test_expand_local_includes_book_paths():
     assert "HAS_CHAPTER" in q.EXPAND_LOCAL      # book statement path
     # null-struct hygiene: combined collects must filter empty OPTIONAL rows
     assert "WHERE x.id IS NOT NULL" in q.EXPAND_LOCAL
+
+
+def test_get_concept_includes_book_stated_definitions_and_covers():
+    assert "Section)-[:STATES]->" in q.GET_CONCEPT or ":STATES]-(bs:Section)" in q.GET_CONCEPT
+    assert "COVERS" in q.GET_CONCEPT
+    assert "coalesce(dp.id, bk.id)" in q.GET_CONCEPT
+    assert "AS source_type" in q.GET_CONCEPT

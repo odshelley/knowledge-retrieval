@@ -255,11 +255,27 @@ MATCH (c:Concept)
 WHERE toLower(c.name) = toLower($name)
 OPTIONAL MATCH (d:Definition)-[:DEFINES]->(c)
 OPTIONAL MATCH (dp:Paper)-[:STATES]->(d)
-WITH c, collect(DISTINCT {id: d.id, term: d.term, statement: d.statement,
-                          paper_id: dp.id, paper_title: dp.title})[..10] AS definitions
+OPTIONAL MATCH (bs:Section)-[:STATES]->(d)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(bch:Chapter)-[:HAS_SECTION]->(bs)
+WITH c, d, dp, bs, bk, bch,
+     CASE WHEN dp IS NOT NULL THEN 'paper'
+          WHEN bk IS NOT NULL THEN 'book' END AS source_type
+WITH c, [x IN collect(DISTINCT {
+           id: d.id, term: d.term, statement: d.statement,
+           paper_id: coalesce(dp.id, bk.id), paper_title: coalesce(dp.title, bk.title),
+           source_type: source_type,
+           chapter: bch.title, section: bs.title})
+         WHERE x.id IS NOT NULL][..10] AS definitions
 OPTIONAL MATCH (p:Paper)-[:DISCUSSES]->(c)
+OPTIONAL MATCH (bkc:Book)-[:COVERS]->(c)
+WITH c, definitions, p, bkc
 WITH c, definitions,
-     collect(DISTINCT {id: p.id, title: p.title, year: p.year})[..15] AS papers
+     [x IN collect(DISTINCT {id: coalesce(p.id, bkc.id),
+                             title: coalesce(p.title, bkc.title),
+                             year: p.year,
+                             source_type: CASE WHEN bkc IS NOT NULL THEN 'book'
+                                               ELSE 'paper' END})
+      WHERE x.id IS NOT NULL][..15] AS papers
 OPTIONAL MATCH (p2:Paper)-[:DISCUSSES]->(c)
 OPTIONAL MATCH (p2)-[:DISCUSSES]->(other:Concept)
 WHERE other.name <> c.name
