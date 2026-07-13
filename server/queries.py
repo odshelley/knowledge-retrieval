@@ -175,20 +175,27 @@ LIMIT $top_k
 
 EXPAND_LOCAL = """
 UNWIND $paper_ids AS pid
-MATCH (p:Paper {id: pid})
-OPTIONAL MATCH (p)-[:DISCUSSES]->(c:Concept)
-WITH p, collect(DISTINCT c.name)[..10] AS concepts
-OPTIONAL MATCH (p)-[:STATES]->(d:Definition)
-WITH p, concepts, collect(DISTINCT {id: d.id, term: d.term})[..10] AS definitions
-OPTIONAL MATCH (p)-[:STATES]->(r:Result)
-WITH p, concepts, definitions,
-     collect(DISTINCT {id: r.id, kind: r.kind, name: r.name})[..10] AS results
-OPTIONAL MATCH (p)-[:CITES]->(o:Paper)
-WITH p, concepts, definitions, results,
-     collect(DISTINCT {id: o.id, title: o.title})[..5] AS cites
-OPTIONAL MATCH (i:Paper)-[:CITES]->(p)
-RETURN p.id AS paper_id, concepts, definitions, results, cites,
-       collect(DISTINCT {id: i.id, title: i.title})[..5] AS cited_by
+MATCH (src) WHERE (src:Paper OR src:Book) AND src.id = pid
+OPTIONAL MATCH (src)-[:DISCUSSES|COVERS]->(c:Concept)
+WITH src, collect(DISTINCT c.name)[..10] AS concepts
+OPTIONAL MATCH (src)-[:STATES]->(pd:Definition)
+OPTIONAL MATCH (src)-[:HAS_CHAPTER]->()-[:HAS_SECTION]->()-[:STATES]->(bd:Definition)
+WITH src, concepts,
+     [x IN collect(DISTINCT {id: pd.id, term: pd.term}) +
+           collect(DISTINCT {id: bd.id, term: bd.term})
+      WHERE x.id IS NOT NULL][..10] AS definitions
+OPTIONAL MATCH (src)-[:STATES]->(pr:Result)
+OPTIONAL MATCH (src)-[:HAS_CHAPTER]->()-[:HAS_SECTION]->()-[:STATES]->(br:Result)
+WITH src, concepts, definitions,
+     [x IN collect(DISTINCT {id: pr.id, kind: pr.kind, name: pr.name}) +
+           collect(DISTINCT {id: br.id, kind: br.kind, name: br.name})
+      WHERE x.id IS NOT NULL][..10] AS results
+OPTIONAL MATCH (src)-[:CITES]->(o:Paper)
+WITH src, concepts, definitions, results,
+     [x IN collect(DISTINCT {id: o.id, title: o.title}) WHERE x.id IS NOT NULL][..5] AS cites
+OPTIONAL MATCH (i:Paper)-[:CITES]->(src)
+RETURN src.id AS paper_id, concepts, definitions, results, cites,
+       [x IN collect(DISTINCT {id: i.id, title: i.title}) WHERE x.id IS NOT NULL][..5] AS cited_by
 """
 
 TOP_CONCEPTS_FOR_PAPERS = """

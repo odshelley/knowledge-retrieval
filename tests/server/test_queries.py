@@ -198,3 +198,11 @@ def test_chunk_search_queries_include_book_sources():
         assert "AS section" in query
         # compat: legacy field names survive
         assert "AS paper_id" in query and "AS paper_title" in query
+
+
+def test_expand_local_includes_book_paths():
+    assert "src:Paper OR src:Book" in q.EXPAND_LOCAL
+    assert "DISCUSSES|COVERS" in q.EXPAND_LOCAL
+    assert "HAS_CHAPTER" in q.EXPAND_LOCAL      # book statement path
+    # null-struct hygiene: combined collects must filter empty OPTIONAL rows
+    assert "WHERE x.id IS NOT NULL" in q.EXPAND_LOCAL
