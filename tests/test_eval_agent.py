@@ -152,3 +152,23 @@ def test_anthropic_loop_dispatch_and_cap():
     assert [t["tool"] for t in trace] == ["run_cypher"]
     assert "42" in evidence
     assert client.tool_choices == [{"type": "auto"}, {"type": "auto"}]
+
+
+def test_citation_ref_matching_by_title_and_arxiv():
+    from scripts.backfill_citations import build_indexes, match_ref
+    papers = [
+        {"id": "arxiv:2011.13456", "title": "SCORE-BASED GENERATIVE MODELING THROUGH "
+         "STOCHASTIC DIFFERENTIAL EQUATIONS", "doi": None, "arxiv": "2011.13456v2", "s2": None},
+    ]
+    by = build_indexes(papers)
+    # matched via normalized title despite no shared identifier
+    from pipeline.graph.research_port import normalize_title
+    ref = {"s2_id": "zzz", "doi": None, "arxiv_id": None,
+           "title_norm": normalize_title("Score-Based Generative Modeling through "
+                                         "Stochastic Differential Equations")}
+    assert match_ref(by, ref) == "arxiv:2011.13456"
+    # matched via version-stripped arxiv id
+    ref2 = {"s2_id": None, "doi": None, "arxiv_id": "2011.13456v1", "title_norm": None}
+    assert match_ref(by, ref2) == "arxiv:2011.13456"
+    # no match
+    assert match_ref(by, {"s2_id": "q", "doi": "x", "arxiv_id": "9999.0", "title_norm": "w"}) is None

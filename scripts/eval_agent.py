@@ -40,7 +40,8 @@ AGENT_ANSWER_SYSTEM = (
     "or relationship questions, call get_schema then run_cypher rather than answering from "
     "chunk text. For definitions of a named concept, call get_concept first (formal "
     "definitions live in Definition nodes, not chunks); for other descriptive questions, "
-    "use search_chunks. If the tools "
+    "use search_chunks. For set questions (e.g. papers discussing BOTH X and Y), use "
+    "run_cypher — get_concept paper lists are truncated and will miss members. If the tools "
     "cannot provide the answer, say exactly: 'The corpus does not contain this information.' "
     "Do not use outside knowledge."
 )

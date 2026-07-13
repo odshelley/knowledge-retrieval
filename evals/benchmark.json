@@ -9,7 +9,7 @@
   {
     "id": "most-cited",
     "question": "Which paper in the corpus is cited by the most other papers in the corpus?",
-    "ground_truth_cypher": "MATCH (:Paper)-[:CITES]->(p:Paper) RETURN p.title AS answer, count(*) AS n ORDER BY n DESC LIMIT 1",
+    "ground_truth_cypher": "MATCH (:Paper)-[:CITES]->(p:Paper) WITH p, count(*) AS n WITH collect({title: p.title, n: n}) AS rows, max(n) AS mx RETURN [r IN rows WHERE r.n = mx | r.title] AS answer, mx AS citations",
     "expected_behavior": "answer",
     "retrieval_answerable": false
   },
@@ -23,7 +23,7 @@
   {
     "id": "newest-paper",
     "question": "What is the most recent paper in the corpus?",
-    "ground_truth_cypher": "MATCH (p:Paper) RETURN p.title AS answer ORDER BY coalesce(p.year,0) DESC LIMIT 1",
+    "ground_truth_cypher": "MATCH (p:Paper) WITH max(coalesce(p.year,0)) AS mx MATCH (p:Paper) WHERE coalesce(p.year,0) = mx RETURN collect(p.title) AS answer, mx AS year",
     "expected_behavior": "answer",
     "retrieval_answerable": false
   },
@@ -44,7 +44,7 @@
   {
     "id": "multi-hop-deps",
     "question": "Pick any theorem that depends on at least one other result and name what it depends on.",
-    "ground_truth_cypher": "MATCH (r:Result)-[:DEPENDS_ON]->(d:Result) RETURN r.name AS theorem, collect(d.name) AS answer LIMIT 1",
+    "ground_truth_cypher": "MATCH (r:Result)-[:DEPENDS_ON]->(d:Result) RETURN r.name AS theorem, collect(d.name) AS answer LIMIT 50",
     "expected_behavior": "answer",
     "retrieval_answerable": false
   },

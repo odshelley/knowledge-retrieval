@@ -58,7 +58,10 @@ RECALL_SYSTEM = (
 CORRECTNESS_SYSTEM = (
     "You judge answer correctness. verdict='pass' iff the generated answer agrees with "
     "the ground truth. For refuse-questions (ground truth says info is unavailable/out of "
-    "scope), pass iff the answer clearly declines rather than fabricating."
+    "scope), pass iff the answer clearly declines rather than fabricating. When the ground "
+    "truth is a list of tied items, pass an answer naming any or all of them. When the "
+    "question asks for ANY example, pass iff the answer is consistent with at least one "
+    "ground-truth row."
 )
 
 
