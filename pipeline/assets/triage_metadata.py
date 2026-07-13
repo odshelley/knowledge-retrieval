@@ -80,7 +80,12 @@ def triage_metadata(context) -> MaterializeResult:
                 f"ingested from document {row['doc']}")
         s.run(rp.WRITE_PAPER, **paper)
 
-    refs = rp.top_reference_records(rp.references(rec["s2_id"]), limit=3) if rec.get("s2_id") else []
+    # Keep the full reference list (the S2 fetch already caps at 100). The original limit=3
+    # kept only the 3 most-influential refs, which almost never coincide with in-corpus
+    # papers — observed effect: 2 CITES edges across 135 papers. scripts/backfill_citations.py
+    # repairs papers ingested under the old limit.
+    refs = (rp.top_reference_records(rp.references(rec["s2_id"]), limit=100)
+            if rec.get("s2_id") else [])
     identifiers = {"s2_id": rec.get("s2_id"), "doi": doi, "arxiv_id": arxiv,
                    "title_norm": rp.normalize_title(title) if title else None}
     s3.put_object(Bucket=TRIAGE_BUCKET, Key=f"{key}.json",

@@ -6,6 +6,12 @@ Ground truth is a Cypher query executed against the live graph at eval time
 Run: `uv run python scripts/run_eval.py` (needs .env with NEO4J_* and OPENAI_API_KEY).
 Results land in `evals/results/<timestamp>.json` and print as a table.
 
+Two modes (`--mode`, default `retrieval`):
+- `retrieval` — the answer model sees only `search_chunks` context (legacy baseline).
+- `agent` — a bounded tool loop (max 6 calls) with `search_chunks`, `get_schema`, and the
+  guarded `run_cypher`, mirroring what MCP clients can do. Recall is judged over the union
+  of tool outputs and scored on all items; per-slice correctness is reported in the summary.
+
 ## Adding content questions (do once, then extend freely)
 1. `uv run python -c "..."` or Neo4j browser: run the OVERVIEW_TOP_CONCEPTS query
    (server/queries.py) and take the top 3 concepts.
