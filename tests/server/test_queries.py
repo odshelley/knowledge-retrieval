@@ -235,3 +235,14 @@ def test_dependency_chain_keeps_book_results():
 def test_overview_counts_books_and_notations():
     assert "MATCH (b:Book)" in q.OVERVIEW_COUNTS
     assert "MATCH (n:Notation)" in q.OVERVIEW_COUNTS
+
+
+def test_top_concepts_for_papers_accepts_book_sources():
+    assert "src:Paper OR src:Book" in q.TOP_CONCEPTS_FOR_PAPERS
+    assert "DISCUSSES|COVERS" in q.TOP_CONCEPTS_FOR_PAPERS
+
+
+def test_expand_concepts_includes_book_sources():
+    assert "COVERS" in q.EXPAND_CONCEPTS
+    assert "coalesce(dp.id, bk.id)" in q.EXPAND_CONCEPTS
+    assert "AS source_type" in q.EXPAND_CONCEPTS

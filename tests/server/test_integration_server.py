@@ -119,9 +119,20 @@ def test_get_concept_returns_book_definition(mcp):
     paper_papers = [p for p in papers if p.get("source_type") == "paper"]
     assert book_papers, f"no book-sourced papers entry: {papers}"
     assert paper_papers, f"no paper-sourced papers entry: {papers}"
-    assert all(p.get("source_type") != "book" for p in paper_papers), (
-        f"a paper entry was mislabeled as book: {papers}"
+    # falsifiable: every entry must be cleanly one type, no entry both/neither
+    assert len(papers) == len(paper_papers) + len(book_papers), (
+        f"papers entries not cleanly partitioned by source_type: {papers}"
     )
+
+
+def test_search_chunks_concepts_expand_reaches_book_concepts(graph):
+    """Books must contribute concepts through the expand='concepts' path too: hits whose
+    paper_ids are Book ids must still surface concepts via TOP_CONCEPTS_FOR_PAPERS +
+    EXPAND_CONCEPTS."""
+    from server.retrieve import search_chunks_core
+    out = search_chunks_core(
+        graph, "upcrossing lemma martingale convergence", top_k=8, expand="concepts")
+    assert out["concepts"], f"expand='concepts' returned no concepts: {out}"
 
 
 def test_dependency_chain_traverses_book_results(graph):

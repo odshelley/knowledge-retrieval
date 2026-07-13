@@ -200,7 +200,8 @@ RETURN src.id AS paper_id, concepts, definitions, results, cites,
 
 TOP_CONCEPTS_FOR_PAPERS = """
 UNWIND $paper_ids AS pid
-MATCH (:Paper {id: pid})-[:DISCUSSES]->(c:Concept)
+MATCH (src) WHERE (src:Paper OR src:Book) AND src.id = pid
+MATCH (src)-[:DISCUSSES|COVERS]->(c:Concept)
 RETURN c.name AS name, count(*) AS freq
 ORDER BY freq DESC LIMIT 5
 """
@@ -210,16 +211,39 @@ UNWIND $names AS cname
 MATCH (c:Concept {name: cname})
 OPTIONAL MATCH (d:Definition)-[:DEFINES]->(c)
 OPTIONAL MATCH (dp:Paper)-[:STATES]->(d)
-WITH c, collect(DISTINCT {id: d.id, term: d.term, statement: d.statement,
-                          paper_id: dp.id, paper_title: dp.title})[..5] AS definitions
+OPTIONAL MATCH (bs:Section)-[:STATES]->(d)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(bch:Chapter)-[:HAS_SECTION]->(bs)
+WITH c, d, dp, bs, bk, bch,
+     CASE WHEN dp IS NOT NULL THEN 'paper'
+          WHEN bk IS NOT NULL THEN 'book' END AS source_type
+WITH c, [x IN collect(DISTINCT {
+           id: d.id, term: d.term, statement: d.statement,
+           paper_id: coalesce(dp.id, bk.id), paper_title: coalesce(dp.title, bk.title),
+           source_type: source_type,
+           chapter: bch.title, section: bs.title})
+         WHERE x.id IS NOT NULL][..5] AS definitions
 OPTIONAL MATCH (r:Result)-[:USES]->(c)
 OPTIONAL MATCH (rp:Paper)-[:STATES]->(r)
+OPTIONAL MATCH (rs:Section)-[:STATES]->(r)
+OPTIONAL MATCH (rbk:Book)-[:HAS_CHAPTER]->()-[:HAS_SECTION]->(rs)
+WITH c, definitions, r, rp, rbk,
+     CASE WHEN rp IS NOT NULL THEN 'paper'
+          WHEN rbk IS NOT NULL THEN 'book' END AS r_source_type
 WITH c, definitions,
-     collect(DISTINCT {id: r.id, kind: r.kind, name: r.name,
-                       paper_id: rp.id})[..5] AS results
+     [x IN collect(DISTINCT {id: r.id, kind: r.kind, name: r.name,
+                             paper_id: coalesce(rp.id, rbk.id),
+                             source_type: r_source_type})
+      WHERE x.id IS NOT NULL][..5] AS results
 OPTIONAL MATCH (p:Paper)-[:DISCUSSES]->(c)
-RETURN c.name AS concept, definitions, results,
-       collect(DISTINCT {id: p.id, title: p.title})[..5] AS papers
+WITH c, definitions, results,
+     [x IN collect(DISTINCT {id: p.id, title: p.title, source_type: 'paper'})
+      WHERE x.id IS NOT NULL][..5] AS papers
+OPTIONAL MATCH (bkc:Book)-[:COVERS]->(c)
+WITH c, definitions, results, papers,
+     [x IN collect(DISTINCT {id: bkc.id, title: bkc.title, source_type: 'book'})
+      WHERE x.id IS NOT NULL][..5] AS book_papers
+WITH c, definitions, results, papers + book_papers AS papers
+RETURN c.name AS concept, definitions, results, papers
 """
 
 GET_PAPER = """
