@@ -79,6 +79,9 @@ def judge(client, system: str, payload: str) -> Judgment:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--mode", choices=("retrieval", "agent"), default="retrieval",
+                    help="retrieval: answer from search_chunks context only (legacy baseline). "
+                         "agent: tool loop with search_chunks + get_schema + run_cypher.")
     args = ap.parse_args()
 
     bench = json.loads(Path("evals/benchmark.json").read_text())
@@ -99,17 +102,23 @@ def main() -> None:
     def run_item(item: dict) -> dict:
         t0 = time.monotonic()
         gt_rows = graph.read(item["ground_truth_cypher"])
-        retrieved = search_chunks_core(graph, item["question"], top_k=8, expand="local")
-        context = "\n---\n".join(
-            f"[{c['paper_title']} chunk {c['position']}] {c['text']}"
-            for c in retrieved["chunks"])
-        answer = oai.chat.completions.create(
-            model=ANSWER_MODEL,
-            messages=[{"role": "system", "content": ANSWER_SYSTEM},
-                      {"role": "user",
-                       "content": f"Context:\n{context}\n\nQuestion: {item['question']}"}],
-            timeout=120,
-        ).choices[0].message.content
+        tool_trace = None
+        if args.mode == "agent":
+            from scripts.eval_agent import answer_with_tools
+            answer, tool_trace, context = answer_with_tools(
+                oai, ANSWER_MODEL, graph, item["question"])
+        else:
+            retrieved = search_chunks_core(graph, item["question"], top_k=8, expand="local")
+            context = "\n---\n".join(
+                f"[{c['paper_title']} chunk {c['position']}] {c['text']}"
+                for c in retrieved["chunks"])
+            answer = oai.chat.completions.create(
+                model=ANSWER_MODEL,
+                messages=[{"role": "system", "content": ANSWER_SYSTEM},
+                          {"role": "user",
+                           "content": f"Context:\n{context}\n\nQuestion: {item['question']}"}],
+                timeout=120,
+            ).choices[0].message.content
         gt = json.dumps(gt_rows, default=str)
         recall = judge(oai, RECALL_SYSTEM,
                        f"Ground truth: {gt}\n\nRetrieved context:\n{context[:20000]}")
@@ -117,7 +126,7 @@ def main() -> None:
                         f"Question: {item['question']}\nGround truth: {gt}\n"
                         f"Expected behavior: {item['expected_behavior']}\n"
                         f"Generated answer: {answer}")
-        return {
+        row = {
             "id": item["id"], "question": item["question"],
             "retrieval_answerable": item.get("retrieval_answerable", True),
             "expected_behavior": item["expected_behavior"],
@@ -126,6 +135,9 @@ def main() -> None:
             "answer_correctness": correct.model_dump(),
             "latency_s": round(time.monotonic() - t0, 1),
         }
+        if tool_trace is not None:
+            row["tool_trace"] = tool_trace
+        return row
 
     rows = []
     with jsonl_path.open("w") as fh:
@@ -143,19 +155,31 @@ def main() -> None:
                       f"correct={row['answer_correctness']['verdict']:<5} {row['latency_s']}s")
 
     ok = [r for r in rows if "error" not in r]
-    # Recall only over items whose answer can live in retrieved chunk text; aggregates, graph
-    # queries, and refuse items are not retrieval-answerable and would structurally cap recall.
-    recall_items = [r for r in ok if r["retrieval_answerable"]]
+    # Retrieval mode: recall only over items whose answer can live in retrieved chunk text
+    # (aggregates/graph/refuse items would structurally cap it). Agent mode: recall is judged
+    # over the union of tool outputs (cypher rows can carry the ground truth), so score all.
+    recall_items = ok if args.mode == "agent" else [r for r in ok if r["retrieval_answerable"]]
     n = len(ok)
+
+    def _rate(items, metric):
+        return (sum(r[metric]["verdict"] == "pass" for r in items) / len(items)) if items else None
+
     summary = {
+        "mode": args.mode,
         "n": n,
         "errors": len(rows) - n,
-        "context_recall": (
-            sum(r["context_recall"]["verdict"] == "pass" for r in recall_items) / len(recall_items)
-            if recall_items else None),
+        "context_recall": _rate(recall_items, "context_recall"),
         "context_recall_n": len(recall_items),
-        "answer_correctness": (
-            sum(r["answer_correctness"]["verdict"] == "pass" for r in ok) / n if n else None),
+        "answer_correctness": _rate(ok, "answer_correctness"),
+        "slices": {
+            "retrieval_answerable": _rate(
+                [r for r in ok if r["retrieval_answerable"]], "answer_correctness"),
+            "graph_only": _rate(
+                [r for r in ok if not r["retrieval_answerable"]
+                 and r["expected_behavior"] != "refuse"], "answer_correctness"),
+            "refuse": _rate(
+                [r for r in ok if r["expected_behavior"] == "refuse"], "answer_correctness"),
+        },
         "answer_model": ANSWER_MODEL, "judge_model": JUDGE_MODEL,
     }
     (out_dir / f"{stamp}.json").write_text(
