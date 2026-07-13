@@ -354,11 +354,13 @@ ORDER BY coalesce(o.year, 0) DESC LIMIT 50
 
 OVERVIEW_COUNTS = """
 CALL { MATCH (p:Paper) RETURN count(p) AS papers }
+CALL { MATCH (b:Book) RETURN count(b) AS books }
 CALL { MATCH (c:Chunk) RETURN count(c) AS chunks }
 CALL { MATCH (co:Concept) RETURN count(co) AS concepts }
 CALL { MATCH (d:Definition) RETURN count(d) AS definitions }
 CALL { MATCH (r:Result) RETURN count(r) AS results }
-RETURN papers, chunks, concepts, definitions, results
+CALL { MATCH (n:Notation) RETURN count(n) AS notations }
+RETURN papers, books, chunks, concepts, definitions, results, notations
 """
 
 OVERVIEW_TOP_CONCEPTS = """

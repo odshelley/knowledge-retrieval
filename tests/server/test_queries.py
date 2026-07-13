@@ -230,3 +230,8 @@ def test_dependency_chain_keeps_book_results():
     assert "\nMATCH (p:Paper)-[:STATES]->" not in cy     # the silent-drop pattern is gone
     assert "OPTIONAL MATCH (p:Paper)-[:STATES]->" in cy
     assert "coalesce(p.id, bk.id)" in cy
+
+
+def test_overview_counts_books_and_notations():
+    assert "MATCH (b:Book)" in q.OVERVIEW_COUNTS
+    assert "MATCH (n:Notation)" in q.OVERVIEW_COUNTS
