@@ -267,15 +267,14 @@ WITH c, [x IN collect(DISTINCT {
            chapter: bch.title, section: bs.title})
          WHERE x.id IS NOT NULL][..10] AS definitions
 OPTIONAL MATCH (p:Paper)-[:DISCUSSES]->(c)
-OPTIONAL MATCH (bkc:Book)-[:COVERS]->(c)
-WITH c, definitions, p, bkc
 WITH c, definitions,
-     [x IN collect(DISTINCT {id: coalesce(p.id, bkc.id),
-                             title: coalesce(p.title, bkc.title),
-                             year: p.year,
-                             source_type: CASE WHEN bkc IS NOT NULL THEN 'book'
-                                               ELSE 'paper' END})
-      WHERE x.id IS NOT NULL][..15] AS papers
+     [x IN collect(DISTINCT {id: p.id, title: p.title, year: p.year,
+                             source_type: 'paper'}) WHERE x.id IS NOT NULL][..15] AS papers
+OPTIONAL MATCH (bkc:Book)-[:COVERS]->(c)
+WITH c, definitions, papers,
+     [x IN collect(DISTINCT {id: bkc.id, title: bkc.title,
+                             source_type: 'book'}) WHERE x.id IS NOT NULL] AS book_papers
+WITH c, definitions, papers + book_papers AS papers
 OPTIONAL MATCH (p2:Paper)-[:DISCUSSES]->(c)
 OPTIONAL MATCH (p2)-[:DISCUSSES]->(other:Concept)
 WHERE other.name <> c.name

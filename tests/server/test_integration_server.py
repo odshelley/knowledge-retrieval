@@ -113,3 +113,12 @@ def test_get_concept_returns_book_definition(mcp):
     book_defs = [d for d in defs if d.get("source_type") == "book"]
     assert book_defs, f"no book-sourced definitions: {defs}"
     assert book_defs[0]["section"] is not None
+
+    papers = data["papers"]
+    book_papers = [p for p in papers if p.get("source_type") == "book"]
+    paper_papers = [p for p in papers if p.get("source_type") == "paper"]
+    assert book_papers, f"no book-sourced papers entry: {papers}"
+    assert paper_papers, f"no paper-sourced papers entry: {papers}"
+    assert all(p.get("source_type") != "book" for p in paper_papers), (
+        f"a paper entry was mislabeled as book: {papers}"
+    )
