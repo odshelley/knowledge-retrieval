@@ -92,3 +92,63 @@ def test_unknown_tool_reported():
 def test_get_schema_needs_no_graph_call():
     out = execute_tool(FakeGraph(), "get_schema", {})
     assert isinstance(out, str) and len(out) > 50
+
+
+def test_unknown_label_rejected_before_driver():
+    graph = FakeGraph()
+    out = execute_tool(graph, "run_cypher", {"query": "MATCH (t:Theorem) RETURN count(t)"})
+    assert out.startswith("error:") and "Theorem" in out
+    assert graph.cypher_seen == []  # rejected before execution
+
+
+def test_known_labels_pass_validation():
+    from scripts.eval_agent import validate_cypher_labels
+    assert validate_cypher_labels(
+        "MATCH (p:Paper)-[:CITES]->(q:Paper) RETURN count(q)") is None
+    # label-looking tokens inside string literals are ignored
+    assert validate_cypher_labels(
+        "MATCH (c:Concept) WHERE c.name = 'foo:Bar' RETURN c") is None
+
+
+def test_empty_rows_get_retry_hint():
+    class EmptyGraph(FakeGraph):
+        def read_limited(self, cypher, **kw):
+            self.cypher_seen.append(cypher)
+            return [], False
+
+    out = execute_tool(EmptyGraph(), "run_cypher", {"query": "MATCH (p:Paper) RETURN p"})
+    payload = json.loads(out)
+    assert payload["rows"] == [] and "hint" in payload
+
+
+def test_anthropic_loop_dispatch_and_cap():
+    from scripts.eval_agent import answer_with_tools_anthropic
+
+    class Block(SimpleNamespace):
+        pass
+
+    def tool_use(call_id):
+        return Block(type="tool_use", id=call_id, name="run_cypher",
+                     input={"query": "MATCH (p:Paper) RETURN count(p) AS answer"})
+
+    class FakeAnthropic:
+        def __init__(self, script):
+            self.script = list(script)
+            self.tool_choices = []
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, **kw):
+            self.tool_choices.append(kw.get("tool_choice"))
+            return self.script.pop(0)
+
+    graph = FakeGraph()
+    client = FakeAnthropic([
+        SimpleNamespace(stop_reason="tool_use", content=[tool_use("t1")]),
+        SimpleNamespace(stop_reason="end_turn",
+                        content=[Block(type="text", text="42 papers.")]),
+    ])
+    answer, trace, evidence = answer_with_tools_anthropic(client, "claude-x", graph, "How many?")
+    assert answer == "42 papers."
+    assert [t["tool"] for t in trace] == ["run_cypher"]
+    assert "42" in evidence
+    assert client.tool_choices == [{"type": "auto"}, {"type": "auto"}]

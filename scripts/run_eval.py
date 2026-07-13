@@ -92,6 +92,16 @@ def main() -> None:
     from openai import OpenAI
     oai = OpenAI(api_key=settings.openai_api_key)
 
+    _clients: dict = {}
+
+    def _anthropic():
+        """Lazy singleton — only constructed (and only required) for claude-* answer models.
+        Resolves credentials from the environment (ANTHROPIC_API_KEY in .env)."""
+        if "anthropic" not in _clients:
+            import anthropic
+            _clients["anthropic"] = anthropic.Anthropic()
+        return _clients["anthropic"]
+
     out_dir = Path("evals/results")
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%d-%H%M%S")
@@ -104,9 +114,14 @@ def main() -> None:
         gt_rows = graph.read(item["ground_truth_cypher"])
         tool_trace = None
         if args.mode == "agent":
-            from scripts.eval_agent import answer_with_tools
-            answer, tool_trace, context = answer_with_tools(
-                oai, ANSWER_MODEL, graph, item["question"])
+            if ANSWER_MODEL.startswith("claude"):
+                from scripts.eval_agent import answer_with_tools_anthropic
+                answer, tool_trace, context = answer_with_tools_anthropic(
+                    _anthropic(), ANSWER_MODEL, graph, item["question"])
+            else:
+                from scripts.eval_agent import answer_with_tools
+                answer, tool_trace, context = answer_with_tools(
+                    oai, ANSWER_MODEL, graph, item["question"])
         else:
             retrieved = search_chunks_core(graph, item["question"], top_k=8, expand="local")
             context = "\n---\n".join(
