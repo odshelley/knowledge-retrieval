@@ -303,12 +303,17 @@ GET_RESULTS = """
 MATCH (r:Result)
 WHERE ($concept IS NULL OR EXISTS {
         MATCH (r)-[:USES]->(c:Concept) WHERE toLower(c.name) = toLower($concept) })
-  AND ($paper_id IS NULL OR EXISTS {
-        MATCH (:Paper {id: $paper_id})-[:STATES]->(r) })
   AND ($kind IS NULL OR r.kind = $kind)
-MATCH (sp:Paper)-[:STATES]->(r)
+OPTIONAL MATCH (sp:Paper)-[:STATES]->(r)
+OPTIONAL MATCH (sec:Section)-[:STATES]->(r)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(chp:Chapter)-[:HAS_SECTION]->(sec)
+WITH r, sp, sec, chp, bk
+WHERE (sp IS NOT NULL OR bk IS NOT NULL)
+  AND ($paper_id IS NULL OR sp.id = $paper_id OR bk.id = $paper_id)
 RETURN r.id AS id, r.kind AS kind, r.name AS name, r.statement AS statement,
-       sp.id AS paper_id, sp.title AS paper_title
+       coalesce(sp.id, bk.id) AS paper_id, coalesce(sp.title, bk.title) AS paper_title,
+       CASE WHEN sp IS NOT NULL THEN 'paper' ELSE 'book' END AS source_type,
+       chp.title AS chapter, sec.title AS section
 LIMIT 25
 """
 
@@ -321,11 +326,15 @@ MATCH (r:Result {{id: $result_id}})
 OPTIONAL MATCH (r)-[:DEPENDS_ON*1..{d}]->(dep:Result)
 WITH r, collect(DISTINCT dep) AS deps
 UNWIND ([r] + deps) AS node
-MATCH (p:Paper)-[:STATES]->(node)
+OPTIONAL MATCH (p:Paper)-[:STATES]->(node)
+OPTIONAL MATCH (sec:Section)-[:STATES]->(node)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(chp:Chapter)-[:HAS_SECTION]->(sec)
 OPTIONAL MATCH (node)-[:USES]->(c:Concept)
 OPTIONAL MATCH (node)-[:DEPENDS_ON]->(d2:Result)
 RETURN node.id AS id, node.kind AS kind, node.name AS name, node.statement AS statement,
-       p.id AS paper_id, p.title AS paper_title,
+       coalesce(p.id, bk.id) AS paper_id, coalesce(p.title, bk.title) AS paper_title,
+       CASE WHEN p IS NOT NULL THEN 'paper' WHEN bk IS NOT NULL THEN 'book' END AS source_type,
+       chp.title AS chapter, sec.title AS section,
        collect(DISTINCT c.name) AS uses_concepts,
        collect(DISTINCT d2.id) AS depends_on
 """

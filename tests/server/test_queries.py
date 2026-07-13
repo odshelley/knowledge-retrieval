@@ -213,3 +213,20 @@ def test_get_concept_includes_book_stated_definitions_and_covers():
     assert "COVERS" in q.GET_CONCEPT
     assert "coalesce(dp.id, bk.id)" in q.GET_CONCEPT
     assert "AS source_type" in q.GET_CONCEPT
+
+
+def test_get_results_accepts_book_sources():
+    assert "OPTIONAL MATCH (sp:Paper)-[:STATES]->" in q.GET_RESULTS
+    assert "Section)-[:STATES]->" in q.GET_RESULTS or "(sec:Section)-[:STATES]" in q.GET_RESULTS
+    assert "coalesce(sp.id, bk.id)" in q.GET_RESULTS
+    assert "bk.id = $paper_id" in q.GET_RESULTS
+
+
+def test_dependency_chain_keeps_book_results():
+    cy = dependency_chain_cypher(3)
+    # NOTE: a bare substring check for "MATCH (p:Paper)-[:STATES]->" would always be True once
+    # "OPTIONAL MATCH (p:Paper)-[:STATES]->" is present (the former is a substring of the
+    # latter), so this checks specifically for the non-optional, silent-drop line form instead.
+    assert "\nMATCH (p:Paper)-[:STATES]->" not in cy     # the silent-drop pattern is gone
+    assert "OPTIONAL MATCH (p:Paper)-[:STATES]->" in cy
+    assert "coalesce(p.id, bk.id)" in cy

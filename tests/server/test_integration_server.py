@@ -122,3 +122,16 @@ def test_get_concept_returns_book_definition(mcp):
     assert all(p.get("source_type") != "book" for p in paper_papers), (
         f"a paper entry was mislabeled as book: {papers}"
     )
+
+
+def test_dependency_chain_traverses_book_results(graph):
+    """Post-v2, cross-chapter DEPENDS_ON edges live on Williams results. Pick one live
+    and confirm the chain query returns book-sourced nodes instead of dropping them."""
+    seed = graph.read(
+        "MATCH (:Section)-[:STATES]->(r:Result)-[:DEPENDS_ON]->(:Result) "
+        "RETURN r.id AS id LIMIT 1")
+    if not seed:
+        pytest.skip("no book results with dependencies in this graph")
+    from server import queries as q
+    rows = graph.read(q.dependency_chain_cypher(3), result_id=seed[0]["id"])
+    assert rows and any(r["source_type"] == "book" for r in rows)
