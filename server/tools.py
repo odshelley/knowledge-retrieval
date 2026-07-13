@@ -23,9 +23,11 @@ def build_mcp(graph: GraphClient) -> FastMCP:
     @mcp.tool()
     def search_chunks(query: str, top_k: int = 8, expand: str = "local",
                       paper_id: str | None = None) -> dict:
-        """Hybrid (vector + keyword) search over paper chunks; expand='local' adds each
-        hit paper's concepts, definitions, results, and CITES neighbours; expand='concepts'
-        pivots to the top concepts across hits. Cite results as (paper_title, chunk position)."""
+        """Hybrid (vector + keyword) search over paper AND book chunks; expand='local' adds
+        each source's concepts, definitions, results, and CITES neighbours; expand='concepts'
+        pivots to the top concepts across hits. Cite paper hits as (paper_title, chunk
+        position); book hits carry source_type='book' — cite as (book, chapter, section).
+        paper_id also accepts a book id to scope the search."""
         return search_chunks_core(graph, query, top_k, expand, paper_id)
 
     @mcp.tool()
@@ -68,8 +70,9 @@ def build_mcp(graph: GraphClient) -> FastMCP:
     @mcp.tool()
     def get_results(concept: str | None = None, paper_id: str | None = None,
                     kind: str | None = None) -> dict:
-        """Theorems/lemmas/propositions/corollaries that USE a concept and/or are
-        STATED by a paper. Provide at least one of concept/paper_id."""
+        """Theorems/lemmas/propositions/corollaries that USE a concept and/or are STATED
+        by a paper or a book section (book rows carry chapter/section + source_type='book').
+        paper_id accepts a paper id or a book id. Provide at least one of concept/paper_id."""
         if concept is None and paper_id is None:
             raise ValueError("provide at least one of concept or paper_id")
         kind = q.validate_kind(kind)
@@ -94,8 +97,9 @@ def build_mcp(graph: GraphClient) -> FastMCP:
 
     @mcp.tool()
     def get_corpus_overview() -> dict:
-        """Corpus shape: node counts, most-discussed concepts, most recent papers.
-        Call this FIRST to judge whether the corpus can support a question."""
+        """Corpus shape: node counts (papers, books, chunks, concepts, definitions, results,
+        notations), most-discussed concepts, most recent papers. Call this FIRST to judge
+        whether the corpus can support a question."""
         counts = graph.read(q.OVERVIEW_COUNTS)
         return {"counts": counts[0] if counts else {},
                 "top_concepts": graph.read(q.OVERVIEW_TOP_CONCEPTS),

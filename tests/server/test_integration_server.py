@@ -86,3 +86,63 @@ def test_read_limited_char_budget_truncates(graph):
     rows, truncated = graph.read_limited(
         "MATCH (c:Chunk) RETURN collect(c.text) AS blob", max_chars=1000)
     assert truncated is True
+
+
+def test_search_chunks_reaches_book_content(mcp, graph):
+    """Williams (v2-ingested) must be findable by hybrid search with a section citation.
+    'upcrossing' is Williams-specific vocabulary absent from the paper corpus."""
+    from server.retrieve import search_chunks_core
+    out = search_chunks_core(graph, "upcrossing lemma martingale convergence", top_k=8)
+    book_hits = [c for c in out["chunks"] if c.get("source_type") == "book"]
+    assert book_hits, f"no book chunks in hits: {[c['paper_title'] for c in out['chunks']]}"
+    assert book_hits[0]["section"] is not None
+    assert book_hits[0]["chapter"] is not None
+
+
+def test_get_concept_returns_book_definition(mcp):
+    """'martingale' is defined in Williams; its definition entry must cite the book."""
+    import json
+    out = _call(mcp, "get_concept", {"name": "martingale"})
+    # MCP wraps the result in TextContent; extract the JSON from it
+    if isinstance(out, list):
+        result_text = out[0].text
+        data = json.loads(result_text)
+    else:
+        data = out
+    defs = data["definitions"]
+    book_defs = [d for d in defs if d.get("source_type") == "book"]
+    assert book_defs, f"no book-sourced definitions: {defs}"
+    assert book_defs[0]["section"] is not None
+
+    papers = data["papers"]
+    book_papers = [p for p in papers if p.get("source_type") == "book"]
+    paper_papers = [p for p in papers if p.get("source_type") == "paper"]
+    assert book_papers, f"no book-sourced papers entry: {papers}"
+    assert paper_papers, f"no paper-sourced papers entry: {papers}"
+    # falsifiable: every entry must be cleanly one type, no entry both/neither
+    assert len(papers) == len(paper_papers) + len(book_papers), (
+        f"papers entries not cleanly partitioned by source_type: {papers}"
+    )
+
+
+def test_search_chunks_concepts_expand_reaches_book_concepts(graph):
+    """Books must contribute concepts through the expand='concepts' path too: hits whose
+    paper_ids are Book ids must still surface concepts via TOP_CONCEPTS_FOR_PAPERS +
+    EXPAND_CONCEPTS."""
+    from server.retrieve import search_chunks_core
+    out = search_chunks_core(
+        graph, "upcrossing lemma martingale convergence", top_k=8, expand="concepts")
+    assert out["concepts"], f"expand='concepts' returned no concepts: {out}"
+
+
+def test_dependency_chain_traverses_book_results(graph):
+    """Post-v2, cross-chapter DEPENDS_ON edges live on Williams results. Pick one live
+    and confirm the chain query returns book-sourced nodes instead of dropping them."""
+    seed = graph.read(
+        "MATCH (:Section)-[:STATES]->(r:Result)-[:DEPENDS_ON]->(:Result) "
+        "RETURN r.id AS id LIMIT 1")
+    if not seed:
+        pytest.skip("no book results with dependencies in this graph")
+    from server import queries as q
+    rows = graph.read(q.dependency_chain_cypher(3), result_id=seed[0]["id"])
+    assert rows and any(r["source_type"] == "book" for r in rows)

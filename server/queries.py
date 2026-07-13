@@ -1,7 +1,8 @@
 """Cypher constants + pure validation/shaping for the kg MCP tools.
 
 All queries are read-only. Provenance note: paper chunks carry `position` (int order
-within the paper), not a section — cite as (paper, chunk position).
+within the paper) — cite as (paper, chunk position). Book chunks additionally carry
+`chapter`/`section` titles and `source_type='book'` — cite as (book, chapter, section).
 """
 from __future__ import annotations
 
@@ -147,10 +148,13 @@ def merge_chunk_hits(vector_rows: list[dict], fulltext_rows: list[dict],
 
 FULLTEXT_SEARCH = """
 CALL db.index.fulltext.queryNodes('chunk_text', $q) YIELD node, score
-MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(p:Paper)
-WHERE $paper_id IS NULL OR p.id = $paper_id
+MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(src)
+WHERE (src:Paper OR src:Book) AND ($paper_id IS NULL OR src.id = $paper_id)
+OPTIONAL MATCH (node)-[:PART_OF]->(sec:Section)<-[:HAS_SECTION]-(chp:Chapter)
 RETURN node.id AS chunk_id, node.text AS text, node.position AS position, score,
-       p.id AS paper_id, p.title AS paper_title, p.year AS year
+       src.id AS paper_id, src.title AS paper_title, src.year AS year,
+       CASE WHEN src:Book THEN 'book' ELSE 'paper' END AS source_type,
+       chp.title AS chapter, sec.title AS section
 ORDER BY score DESC
 LIMIT $top_k
 """
@@ -158,35 +162,46 @@ LIMIT $top_k
 VECTOR_SEARCH = """
 CALL db.index.vector.queryNodes('chunk_embedding', $k, $embedding)
 YIELD node, score
-MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(p:Paper)
-WHERE $paper_id IS NULL OR p.id = $paper_id
+MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(src)
+WHERE (src:Paper OR src:Book) AND ($paper_id IS NULL OR src.id = $paper_id)
+OPTIONAL MATCH (node)-[:PART_OF]->(sec:Section)<-[:HAS_SECTION]-(chp:Chapter)
 RETURN node.id AS chunk_id, node.text AS text, node.position AS position, score,
-       p.id AS paper_id, p.title AS paper_title, p.year AS year
+       src.id AS paper_id, src.title AS paper_title, src.year AS year,
+       CASE WHEN src:Book THEN 'book' ELSE 'paper' END AS source_type,
+       chp.title AS chapter, sec.title AS section
 ORDER BY score DESC
 LIMIT $top_k
 """
 
 EXPAND_LOCAL = """
 UNWIND $paper_ids AS pid
-MATCH (p:Paper {id: pid})
-OPTIONAL MATCH (p)-[:DISCUSSES]->(c:Concept)
-WITH p, collect(DISTINCT c.name)[..10] AS concepts
-OPTIONAL MATCH (p)-[:STATES]->(d:Definition)
-WITH p, concepts, collect(DISTINCT {id: d.id, term: d.term})[..10] AS definitions
-OPTIONAL MATCH (p)-[:STATES]->(r:Result)
-WITH p, concepts, definitions,
-     collect(DISTINCT {id: r.id, kind: r.kind, name: r.name})[..10] AS results
-OPTIONAL MATCH (p)-[:CITES]->(o:Paper)
-WITH p, concepts, definitions, results,
-     collect(DISTINCT {id: o.id, title: o.title})[..5] AS cites
-OPTIONAL MATCH (i:Paper)-[:CITES]->(p)
-RETURN p.id AS paper_id, concepts, definitions, results, cites,
-       collect(DISTINCT {id: i.id, title: i.title})[..5] AS cited_by
+MATCH (src) WHERE (src:Paper OR src:Book) AND src.id = pid
+OPTIONAL MATCH (src)-[:DISCUSSES|COVERS]->(c:Concept)
+WITH src, collect(DISTINCT c.name)[..10] AS concepts
+OPTIONAL MATCH (src)-[:STATES]->(pd:Definition)
+OPTIONAL MATCH (src)-[:HAS_CHAPTER]->()-[:HAS_SECTION]->()-[:STATES]->(bd:Definition)
+WITH src, concepts,
+     [x IN collect(DISTINCT {id: pd.id, term: pd.term}) +
+           collect(DISTINCT {id: bd.id, term: bd.term})
+      WHERE x.id IS NOT NULL][..10] AS definitions
+OPTIONAL MATCH (src)-[:STATES]->(pr:Result)
+OPTIONAL MATCH (src)-[:HAS_CHAPTER]->()-[:HAS_SECTION]->()-[:STATES]->(br:Result)
+WITH src, concepts, definitions,
+     [x IN collect(DISTINCT {id: pr.id, kind: pr.kind, name: pr.name}) +
+           collect(DISTINCT {id: br.id, kind: br.kind, name: br.name})
+      WHERE x.id IS NOT NULL][..10] AS results
+OPTIONAL MATCH (src)-[:CITES]->(o:Paper)
+WITH src, concepts, definitions, results,
+     [x IN collect(DISTINCT {id: o.id, title: o.title}) WHERE x.id IS NOT NULL][..5] AS cites
+OPTIONAL MATCH (i:Paper)-[:CITES]->(src)
+RETURN src.id AS paper_id, concepts, definitions, results, cites,
+       [x IN collect(DISTINCT {id: i.id, title: i.title}) WHERE x.id IS NOT NULL][..5] AS cited_by
 """
 
 TOP_CONCEPTS_FOR_PAPERS = """
 UNWIND $paper_ids AS pid
-MATCH (:Paper {id: pid})-[:DISCUSSES]->(c:Concept)
+MATCH (src) WHERE (src:Paper OR src:Book) AND src.id = pid
+MATCH (src)-[:DISCUSSES|COVERS]->(c:Concept)
 RETURN c.name AS name, count(*) AS freq
 ORDER BY freq DESC LIMIT 5
 """
@@ -196,16 +211,39 @@ UNWIND $names AS cname
 MATCH (c:Concept {name: cname})
 OPTIONAL MATCH (d:Definition)-[:DEFINES]->(c)
 OPTIONAL MATCH (dp:Paper)-[:STATES]->(d)
-WITH c, collect(DISTINCT {id: d.id, term: d.term, statement: d.statement,
-                          paper_id: dp.id, paper_title: dp.title})[..5] AS definitions
+OPTIONAL MATCH (bs:Section)-[:STATES]->(d)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(bch:Chapter)-[:HAS_SECTION]->(bs)
+WITH c, d, dp, bs, bk, bch,
+     CASE WHEN dp IS NOT NULL THEN 'paper'
+          WHEN bk IS NOT NULL THEN 'book' END AS source_type
+WITH c, [x IN collect(DISTINCT {
+           id: d.id, term: d.term, statement: d.statement,
+           paper_id: coalesce(dp.id, bk.id), paper_title: coalesce(dp.title, bk.title),
+           source_type: source_type,
+           chapter: bch.title, section: bs.title})
+         WHERE x.id IS NOT NULL][..5] AS definitions
 OPTIONAL MATCH (r:Result)-[:USES]->(c)
 OPTIONAL MATCH (rp:Paper)-[:STATES]->(r)
+OPTIONAL MATCH (rs:Section)-[:STATES]->(r)
+OPTIONAL MATCH (rbk:Book)-[:HAS_CHAPTER]->()-[:HAS_SECTION]->(rs)
+WITH c, definitions, r, rp, rbk,
+     CASE WHEN rp IS NOT NULL THEN 'paper'
+          WHEN rbk IS NOT NULL THEN 'book' END AS r_source_type
 WITH c, definitions,
-     collect(DISTINCT {id: r.id, kind: r.kind, name: r.name,
-                       paper_id: rp.id})[..5] AS results
+     [x IN collect(DISTINCT {id: r.id, kind: r.kind, name: r.name,
+                             paper_id: coalesce(rp.id, rbk.id),
+                             source_type: r_source_type})
+      WHERE x.id IS NOT NULL][..5] AS results
 OPTIONAL MATCH (p:Paper)-[:DISCUSSES]->(c)
-RETURN c.name AS concept, definitions, results,
-       collect(DISTINCT {id: p.id, title: p.title})[..5] AS papers
+WITH c, definitions, results,
+     [x IN collect(DISTINCT {id: p.id, title: p.title, source_type: 'paper'})
+      WHERE x.id IS NOT NULL][..5] AS papers
+OPTIONAL MATCH (bkc:Book)-[:COVERS]->(c)
+WITH c, definitions, results, papers,
+     [x IN collect(DISTINCT {id: bkc.id, title: bkc.title, source_type: 'book'})
+      WHERE x.id IS NOT NULL][..5] AS book_papers
+WITH c, definitions, results, papers + book_papers AS papers
+RETURN c.name AS concept, definitions, results, papers
 """
 
 GET_PAPER = """
@@ -241,11 +279,26 @@ MATCH (c:Concept)
 WHERE toLower(c.name) = toLower($name)
 OPTIONAL MATCH (d:Definition)-[:DEFINES]->(c)
 OPTIONAL MATCH (dp:Paper)-[:STATES]->(d)
-WITH c, collect(DISTINCT {id: d.id, term: d.term, statement: d.statement,
-                          paper_id: dp.id, paper_title: dp.title})[..10] AS definitions
+OPTIONAL MATCH (bs:Section)-[:STATES]->(d)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(bch:Chapter)-[:HAS_SECTION]->(bs)
+WITH c, d, dp, bs, bk, bch,
+     CASE WHEN dp IS NOT NULL THEN 'paper'
+          WHEN bk IS NOT NULL THEN 'book' END AS source_type
+WITH c, [x IN collect(DISTINCT {
+           id: d.id, term: d.term, statement: d.statement,
+           paper_id: coalesce(dp.id, bk.id), paper_title: coalesce(dp.title, bk.title),
+           source_type: source_type,
+           chapter: bch.title, section: bs.title})
+         WHERE x.id IS NOT NULL][..10] AS definitions
 OPTIONAL MATCH (p:Paper)-[:DISCUSSES]->(c)
 WITH c, definitions,
-     collect(DISTINCT {id: p.id, title: p.title, year: p.year})[..15] AS papers
+     [x IN collect(DISTINCT {id: p.id, title: p.title, year: p.year,
+                             source_type: 'paper'}) WHERE x.id IS NOT NULL][..15] AS papers
+OPTIONAL MATCH (bkc:Book)-[:COVERS]->(c)
+WITH c, definitions, papers,
+     [x IN collect(DISTINCT {id: bkc.id, title: bkc.title,
+                             source_type: 'book'}) WHERE x.id IS NOT NULL] AS book_papers
+WITH c, definitions, papers + book_papers AS papers
 OPTIONAL MATCH (p2:Paper)-[:DISCUSSES]->(c)
 OPTIONAL MATCH (p2)-[:DISCUSSES]->(other:Concept)
 WHERE other.name <> c.name
@@ -274,12 +327,17 @@ GET_RESULTS = """
 MATCH (r:Result)
 WHERE ($concept IS NULL OR EXISTS {
         MATCH (r)-[:USES]->(c:Concept) WHERE toLower(c.name) = toLower($concept) })
-  AND ($paper_id IS NULL OR EXISTS {
-        MATCH (:Paper {id: $paper_id})-[:STATES]->(r) })
   AND ($kind IS NULL OR r.kind = $kind)
-MATCH (sp:Paper)-[:STATES]->(r)
+OPTIONAL MATCH (sp:Paper)-[:STATES]->(r)
+OPTIONAL MATCH (sec:Section)-[:STATES]->(r)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(chp:Chapter)-[:HAS_SECTION]->(sec)
+WITH r, sp, sec, chp, bk
+WHERE (sp IS NOT NULL OR bk IS NOT NULL)
+  AND ($paper_id IS NULL OR sp.id = $paper_id OR bk.id = $paper_id)
 RETURN r.id AS id, r.kind AS kind, r.name AS name, r.statement AS statement,
-       sp.id AS paper_id, sp.title AS paper_title
+       coalesce(sp.id, bk.id) AS paper_id, coalesce(sp.title, bk.title) AS paper_title,
+       CASE WHEN sp IS NOT NULL THEN 'paper' ELSE 'book' END AS source_type,
+       chp.title AS chapter, sec.title AS section
 LIMIT 25
 """
 
@@ -292,11 +350,15 @@ MATCH (r:Result {{id: $result_id}})
 OPTIONAL MATCH (r)-[:DEPENDS_ON*1..{d}]->(dep:Result)
 WITH r, collect(DISTINCT dep) AS deps
 UNWIND ([r] + deps) AS node
-MATCH (p:Paper)-[:STATES]->(node)
+OPTIONAL MATCH (p:Paper)-[:STATES]->(node)
+OPTIONAL MATCH (sec:Section)-[:STATES]->(node)
+OPTIONAL MATCH (bk:Book)-[:HAS_CHAPTER]->(chp:Chapter)-[:HAS_SECTION]->(sec)
 OPTIONAL MATCH (node)-[:USES]->(c:Concept)
 OPTIONAL MATCH (node)-[:DEPENDS_ON]->(d2:Result)
 RETURN node.id AS id, node.kind AS kind, node.name AS name, node.statement AS statement,
-       p.id AS paper_id, p.title AS paper_title,
+       coalesce(p.id, bk.id) AS paper_id, coalesce(p.title, bk.title) AS paper_title,
+       CASE WHEN p IS NOT NULL THEN 'paper' WHEN bk IS NOT NULL THEN 'book' END AS source_type,
+       chp.title AS chapter, sec.title AS section,
        collect(DISTINCT c.name) AS uses_concepts,
        collect(DISTINCT d2.id) AS depends_on
 """
@@ -316,11 +378,13 @@ ORDER BY coalesce(o.year, 0) DESC LIMIT 50
 
 OVERVIEW_COUNTS = """
 CALL { MATCH (p:Paper) RETURN count(p) AS papers }
+CALL { MATCH (b:Book) RETURN count(b) AS books }
 CALL { MATCH (c:Chunk) RETURN count(c) AS chunks }
 CALL { MATCH (co:Concept) RETURN count(co) AS concepts }
 CALL { MATCH (d:Definition) RETURN count(d) AS definitions }
 CALL { MATCH (r:Result) RETURN count(r) AS results }
-RETURN papers, chunks, concepts, definitions, results
+CALL { MATCH (n:Notation) RETURN count(n) AS notations }
+RETURN papers, books, chunks, concepts, definitions, results, notations
 """
 
 OVERVIEW_TOP_CONCEPTS = """

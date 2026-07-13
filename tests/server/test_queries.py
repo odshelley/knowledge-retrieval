@@ -185,3 +185,64 @@ def test_render_schema_lists_patterns():
     text = q.render_schema()
     assert "(:Paper)-[:DISCUSSES]->(:Concept)" in text
     assert "Chunk" in text
+
+
+def test_chunk_search_queries_include_book_sources():
+    """Both search paths must accept Paper OR Book document owners and emit
+    section/chapter citation fields (null for papers)."""
+    for query in (q.FULLTEXT_SEARCH, q.VECTOR_SEARCH):
+        assert "src:Paper OR src:Book" in query
+        assert "PART_OF" in query          # section hop for book chunks
+        assert "AS source_type" in query
+        assert "AS chapter" in query
+        assert "AS section" in query
+        # compat: legacy field names survive
+        assert "AS paper_id" in query and "AS paper_title" in query
+
+
+def test_expand_local_includes_book_paths():
+    assert "src:Paper OR src:Book" in q.EXPAND_LOCAL
+    assert "DISCUSSES|COVERS" in q.EXPAND_LOCAL
+    assert "HAS_CHAPTER" in q.EXPAND_LOCAL      # book statement path
+    # null-struct hygiene: combined collects must filter empty OPTIONAL rows
+    assert "WHERE x.id IS NOT NULL" in q.EXPAND_LOCAL
+
+
+def test_get_concept_includes_book_stated_definitions_and_covers():
+    assert "Section)-[:STATES]->" in q.GET_CONCEPT or ":STATES]-(bs:Section)" in q.GET_CONCEPT
+    assert "COVERS" in q.GET_CONCEPT
+    assert "coalesce(dp.id, bk.id)" in q.GET_CONCEPT
+    assert "AS source_type" in q.GET_CONCEPT
+
+
+def test_get_results_accepts_book_sources():
+    assert "OPTIONAL MATCH (sp:Paper)-[:STATES]->" in q.GET_RESULTS
+    assert "Section)-[:STATES]->" in q.GET_RESULTS or "(sec:Section)-[:STATES]" in q.GET_RESULTS
+    assert "coalesce(sp.id, bk.id)" in q.GET_RESULTS
+    assert "bk.id = $paper_id" in q.GET_RESULTS
+
+
+def test_dependency_chain_keeps_book_results():
+    cy = dependency_chain_cypher(3)
+    # NOTE: a bare substring check for "MATCH (p:Paper)-[:STATES]->" would always be True once
+    # "OPTIONAL MATCH (p:Paper)-[:STATES]->" is present (the former is a substring of the
+    # latter), so this checks specifically for the non-optional, silent-drop line form instead.
+    assert "\nMATCH (p:Paper)-[:STATES]->" not in cy     # the silent-drop pattern is gone
+    assert "OPTIONAL MATCH (p:Paper)-[:STATES]->" in cy
+    assert "coalesce(p.id, bk.id)" in cy
+
+
+def test_overview_counts_books_and_notations():
+    assert "MATCH (b:Book)" in q.OVERVIEW_COUNTS
+    assert "MATCH (n:Notation)" in q.OVERVIEW_COUNTS
+
+
+def test_top_concepts_for_papers_accepts_book_sources():
+    assert "src:Paper OR src:Book" in q.TOP_CONCEPTS_FOR_PAPERS
+    assert "DISCUSSES|COVERS" in q.TOP_CONCEPTS_FOR_PAPERS
+
+
+def test_expand_concepts_includes_book_sources():
+    assert "COVERS" in q.EXPAND_CONCEPTS
+    assert "coalesce(dp.id, bk.id)" in q.EXPAND_CONCEPTS
+    assert "AS source_type" in q.EXPAND_CONCEPTS
