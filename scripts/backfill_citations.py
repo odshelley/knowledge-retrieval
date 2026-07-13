@@ -55,15 +55,37 @@ def match_ref(by: dict, ref: dict) -> str | None:
     return None
 
 
+def _with_retry(fn, *args, attempts: int = 3, base_sleep: float = 5.0):
+    """S2's unauthenticated tier 429s aggressively and the lookup helpers fold any failure
+    into None/[] — retry with backoff so a throttled call isn't mistaken for a missing paper."""
+    for i in range(attempts):
+        out = fn(*args)
+        if out:
+            return out
+        time.sleep(base_sleep * (i + 1))
+    return None
+
+
+def _arxiv_of(p: dict) -> str | None:
+    """arxiv_id property, else parse it out of the paper id — a handful of papers carry a
+    double-prefixed id ('arxiv:arxiv:NNNN') with no arxiv_id property."""
+    if p.get("arxiv"):
+        return rp.strip_arxiv_version(p["arxiv"])
+    if p["id"].startswith("arxiv:"):
+        return rp.strip_arxiv_version(p["id"].split("arxiv:")[-1])
+    return None
+
+
 def resolve_s2(p: dict) -> str | None:
     if p.get("s2"):
         return p["s2"]
     rec = None
-    if p.get("arxiv"):
-        rec = rp.lookup_by_arxiv(rp.strip_arxiv_version(p["arxiv"]))
+    arxiv = _arxiv_of(p)
+    if arxiv:
+        rec = _with_retry(rp.lookup_by_arxiv, arxiv)
         time.sleep(1.1)
     if rec is None and p.get("doi"):
-        rec = rp.lookup_by_doi(p["doi"])
+        rec = _with_retry(rp.lookup_by_doi, p["doi"])
         time.sleep(1.1)
     return rec.get("s2_id") if rec else None
 
@@ -93,7 +115,7 @@ def main() -> None:
             if not s2:
                 print(f"[{i}/{len(papers)}] {p['id'][:50]}: no s2 id resolvable", flush=True)
                 continue
-            refs = rp.top_reference_records(rp.references(s2), limit=100)
+            refs = rp.top_reference_records(_with_retry(rp.references, s2) or [], limit=100)
             time.sleep(1.1)  # S2 unauthenticated rate limit
             matched = 0
             for ref in refs:
