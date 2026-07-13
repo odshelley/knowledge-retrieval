@@ -86,3 +86,14 @@ def test_read_limited_char_budget_truncates(graph):
     rows, truncated = graph.read_limited(
         "MATCH (c:Chunk) RETURN collect(c.text) AS blob", max_chars=1000)
     assert truncated is True
+
+
+def test_search_chunks_reaches_book_content(mcp, graph):
+    """Williams (v2-ingested) must be findable by hybrid search with a section citation.
+    'upcrossing' is Williams-specific vocabulary absent from the paper corpus."""
+    from server.retrieve import search_chunks_core
+    out = search_chunks_core(graph, "upcrossing lemma martingale convergence", top_k=8)
+    book_hits = [c for c in out["chunks"] if c.get("source_type") == "book"]
+    assert book_hits, f"no book chunks in hits: {[c['paper_title'] for c in out['chunks']]}"
+    assert book_hits[0]["section"] is not None
+    assert book_hits[0]["chapter"] is not None

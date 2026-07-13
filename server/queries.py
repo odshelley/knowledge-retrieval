@@ -1,7 +1,8 @@
 """Cypher constants + pure validation/shaping for the kg MCP tools.
 
 All queries are read-only. Provenance note: paper chunks carry `position` (int order
-within the paper), not a section — cite as (paper, chunk position).
+within the paper) — cite as (paper, chunk position). Book chunks additionally carry
+`chapter`/`section` titles and `source_type='book'` — cite as (book, chapter, section).
 """
 from __future__ import annotations
 
@@ -147,10 +148,13 @@ def merge_chunk_hits(vector_rows: list[dict], fulltext_rows: list[dict],
 
 FULLTEXT_SEARCH = """
 CALL db.index.fulltext.queryNodes('chunk_text', $q) YIELD node, score
-MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(p:Paper)
-WHERE $paper_id IS NULL OR p.id = $paper_id
+MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(src)
+WHERE (src:Paper OR src:Book) AND ($paper_id IS NULL OR src.id = $paper_id)
+OPTIONAL MATCH (node)-[:PART_OF]->(sec:Section)<-[:HAS_SECTION]-(chp:Chapter)
 RETURN node.id AS chunk_id, node.text AS text, node.position AS position, score,
-       p.id AS paper_id, p.title AS paper_title, p.year AS year
+       src.id AS paper_id, src.title AS paper_title, src.year AS year,
+       CASE WHEN src:Book THEN 'book' ELSE 'paper' END AS source_type,
+       chp.title AS chapter, sec.title AS section
 ORDER BY score DESC
 LIMIT $top_k
 """
@@ -158,10 +162,13 @@ LIMIT $top_k
 VECTOR_SEARCH = """
 CALL db.index.vector.queryNodes('chunk_embedding', $k, $embedding)
 YIELD node, score
-MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(p:Paper)
-WHERE $paper_id IS NULL OR p.id = $paper_id
+MATCH (node)-[:BELONGS_TO]->(:Document)<-[:HAS_DOCUMENT]-(src)
+WHERE (src:Paper OR src:Book) AND ($paper_id IS NULL OR src.id = $paper_id)
+OPTIONAL MATCH (node)-[:PART_OF]->(sec:Section)<-[:HAS_SECTION]-(chp:Chapter)
 RETURN node.id AS chunk_id, node.text AS text, node.position AS position, score,
-       p.id AS paper_id, p.title AS paper_title, p.year AS year
+       src.id AS paper_id, src.title AS paper_title, src.year AS year,
+       CASE WHEN src:Book THEN 'book' ELSE 'paper' END AS source_type,
+       chp.title AS chapter, sec.title AS section
 ORDER BY score DESC
 LIMIT $top_k
 """

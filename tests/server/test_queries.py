@@ -185,3 +185,16 @@ def test_render_schema_lists_patterns():
     text = q.render_schema()
     assert "(:Paper)-[:DISCUSSES]->(:Concept)" in text
     assert "Chunk" in text
+
+
+def test_chunk_search_queries_include_book_sources():
+    """Both search paths must accept Paper OR Book document owners and emit
+    section/chapter citation fields (null for papers)."""
+    for query in (q.FULLTEXT_SEARCH, q.VECTOR_SEARCH):
+        assert "src:Paper OR src:Book" in query
+        assert "PART_OF" in query          # section hop for book chunks
+        assert "AS source_type" in query
+        assert "AS chapter" in query
+        assert "AS section" in query
+        # compat: legacy field names survive
+        assert "AS paper_id" in query and "AS paper_title" in query
