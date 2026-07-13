@@ -7,6 +7,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir "mcp>=1.10" "uvicorn>=0.30" "neo4j>=5.27" \
     "openai>=1.55" "python-dotenv>=1.0"
 COPY pipeline/__init__.py pipeline/embedding.py pipeline/
+# server/queries.py imports pipeline.graph.schema (get_schema / run_cypher label validation)
+COPY pipeline/graph/__init__.py pipeline/graph/schema.py pipeline/graph/
 COPY server/ server/
 RUN useradd --create-home --uid 10001 kgserver
 USER kgserver
