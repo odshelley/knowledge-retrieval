@@ -21,6 +21,10 @@ TOOL_CALLS = [
     ("get_results", {"concept": "martingale"}),
     ("get_citations", {"paper_id": "nonexistent-id-ok"}),
     ("get_dependency_chain", {"result_id": "nonexistent-id-ok"}),
+    # GraphRAG augmentations (PR #18) — a deploy that ships without these must fail the smoke
+    ("search_concepts", {"query": "martingale convergence", "top_k": 2}),
+    ("get_schema", {}),
+    ("run_cypher", {"query": "MATCH (p:Paper) RETURN count(p) AS n"}),
 ]
 
 
