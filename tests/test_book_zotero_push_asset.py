@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, call
 
+import botocore.exceptions
 import pytest
 from dagster import build_asset_context
 
@@ -132,3 +133,27 @@ def test_does_not_write_zotero_key_when_incomplete_even_with_a_real_key(monkeypa
     assert session.run.call_count == 1
     assert result.metadata["zotero_key"] == "EXISTING"
     assert result.metadata["complete"] is False
+
+
+def test_transient_pdf_fetch_failure_is_a_clean_noop(monkeypatch):
+    """A ClientError out of fetch_pdf (throttle, connection reset, a 500 -- anything that
+    is not a genuine 404/NoSuchKey/NotFound) must not be treated as "no PDF". If it were,
+    push_one would return complete=True and the caller would write zotero_key, stranding
+    the record without its attachment permanently -- the repair query only revisits
+    zotero_key IS NULL rows."""
+    row = {"node": dict(BOOK_NODE), "authors": ["David Williams"]}
+    client = MagicMock()
+    client.ensure_collections.return_value = {"papers": "PAPERS_COLL", "books": "BOOKS_COLL"}
+    context, session, zotero = _ctx(row=row, client=client)
+    exc = botocore.exceptions.ClientError({"Error": {"Code": "500"}}, "GetObject")
+    monkeypatch.setattr(bzpa, "fetch_pdf", MagicMock(side_effect=exc))
+    push_one = MagicMock()
+    monkeypatch.setattr(bzpa.zp, "push_one", push_one)
+
+    result = bzpa.book_zotero_push(context)  # must not raise
+
+    assert result.metadata["pushed"] is False
+    assert "PDF fetch failed" in result.metadata["reason"]
+    push_one.assert_not_called()
+    # Only the read query ran -- no MARK_BOOK_PUSHED write.
+    assert session.run.call_count == 1

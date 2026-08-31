@@ -23,8 +23,8 @@ import botocore.exceptions
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
+from pipeline.assets.zotero_push import fetch_pdf
 from pipeline.runtime.resources import minio_from_env
-from pipeline.runtime.storage import RAW_BUCKET
 from pipeline.zotero import push as zp
 from pipeline.zotero.client import ZoteroClient, ZoteroClientError
 
@@ -37,13 +37,6 @@ WHERE p.venue IS NULL AND p.journal_name IS NULL
 RETURN count(p) AS n
 """
 UNENRICHED_THRESHOLD = 10
-
-
-def fetch_pdf(s3, key: str) -> bytes | None:
-    try:
-        return s3.get_object(Bucket=RAW_BUCKET, Key=f"{key}.pdf")["Body"].read()
-    except botocore.exceptions.ClientError:
-        return None
 
 
 def main() -> int:
@@ -63,7 +56,7 @@ def main() -> int:
         auth=(os.environ["NEO4J_NEW_USERNAME"], os.environ["NEO4J_NEW_PASSWORD"]))
     database = os.environ.get("NEO4J_NEW_DATABASE", "neo4j")
 
-    created = matched = deferred = failed = no_pdf = 0
+    created = matched = deferred = failed = no_pdf = skipped = 0
     with driver, driver.session(database=database) as s:
         unenriched = s.run(UNENRICHED).single()["n"]
         if unenriched > UNENRICHED_THRESHOLD and not args.skip_venue_check:
@@ -100,6 +93,7 @@ def main() -> int:
             query = zp.PAPER_FOR_PUSH if kind == "paper" else zp.BOOK_FOR_PUSH
             row = s.run(query, document_id=ref["document_id"]).single()
             if row is None:
+                skipped += 1
                 print(f"  SKIP     {ref['id']}  (node vanished)", flush=True)
                 continue
             node, authors = dict(row["node"]), row["authors"]
@@ -110,7 +104,16 @@ def main() -> int:
                 print(f"  DRY      {kind:5} {node.get('title')!r}", flush=True)
                 continue
 
-            pdf = fetch_pdf(s3, ref["document_id"])
+            # A non-absent storage failure must not be swallowed as "no PDF" -- that
+            # would let push_one return complete=True and strand the record without its
+            # attachment, permanently, since zotero_key would then exclude it from repair.
+            try:
+                pdf = fetch_pdf(s3, ref["document_id"])
+            except botocore.exceptions.ClientError as exc:
+                deferred += 1
+                print(f"  DEFERRED {node.get('title')!r}  (PDF fetch failed: {exc})",
+                      flush=True)
+                continue
             if pdf is None:
                 no_pdf += 1
 
@@ -141,7 +144,8 @@ def main() -> int:
                       f"[{out['attachment']}]", flush=True)
 
     print(f"\ncreated: {created}   matched existing: {matched}   "
-          f"deferred (retry later): {deferred}   failed: {failed}   missing PDF: {no_pdf}")
+          f"deferred (retry later): {deferred}   failed: {failed}   skipped: {skipped}   "
+          f"missing PDF: {no_pdf} (subset of created/matched above, filed without a file)")
     return 0
 
 

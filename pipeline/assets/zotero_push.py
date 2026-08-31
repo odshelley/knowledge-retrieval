@@ -15,9 +15,15 @@ from pipeline.zotero.client import ZoteroClientError, ZoteroTransientError
 
 
 def fetch_pdf(s3, key: str) -> bytes | None:
+    """Returns None only when the object is genuinely absent. Any other ClientError
+    (throttle, connection reset, a 500) is re-raised -- swallowing it here would let
+    push_one treat a transient storage failure as "no PDF", write zotero_key on a
+    complete=True result, and permanently strand the record without its attachment."""
     try:
         return s3.get_object(Bucket=RAW_BUCKET, Key=f"{key}.pdf")["Body"].read()
-    except botocore.exceptions.ClientError:
+    except botocore.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] not in ("404", "NoSuchKey", "NotFound"):
+            raise
         return None
 
 
@@ -62,7 +68,16 @@ def zotero_push(context) -> MaterializeResult:
             return MaterializeResult(metadata={"pushed": False,
                                                "reason": f"Zotero unavailable: {exc}"})
 
-        pdf = fetch_pdf(context.resources.minio.get_client(), key)
+        # A non-absent storage failure must not be swallowed as "no PDF" -- that would
+        # let push_one return complete=True and strand the record without its
+        # attachment, permanently, since zotero_key would then exclude it from repair.
+        try:
+            pdf = fetch_pdf(context.resources.minio.get_client(), key)
+        except botocore.exceptions.ClientError as exc:
+            context.log.warning(f"Zotero push: PDF fetch failed for {key}: {exc}")
+            return MaterializeResult(metadata={"pushed": False,
+                                               "reason": f"PDF fetch failed: {exc}"})
+
         out = zp.push_one(client, collections["papers"], {**node, "kind": "paper"},
                           authors, pdf)
 

@@ -5,6 +5,7 @@ zotero_push rather than sharing an asset. The orchestration itself is shared via
 """
 from __future__ import annotations
 
+import botocore.exceptions
 from dagster import MaterializeResult, asset
 
 from pipeline.assets.zotero_push import _result, fetch_pdf
@@ -42,7 +43,16 @@ def book_zotero_push(context) -> MaterializeResult:
             return MaterializeResult(metadata={"pushed": False,
                                                "reason": f"Zotero unavailable: {exc}"})
 
-        pdf = fetch_pdf(context.resources.minio.get_client(), key)
+        # A non-absent storage failure must not be swallowed as "no PDF" -- that would
+        # let push_one return complete=True and strand the record without its
+        # attachment, permanently, since zotero_key would then exclude it from repair.
+        try:
+            pdf = fetch_pdf(context.resources.minio.get_client(), key)
+        except botocore.exceptions.ClientError as exc:
+            context.log.warning(f"Zotero push: PDF fetch failed for {key}: {exc}")
+            return MaterializeResult(metadata={"pushed": False,
+                                               "reason": f"PDF fetch failed: {exc}"})
+
         out = zp.push_one(client, collections["books"], {**node, "kind": "book"},
                           authors, pdf)
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, call
 
+import botocore.exceptions
 import pytest
 from dagster import build_asset_context
 
@@ -49,6 +50,23 @@ def _ctx(*, configured=True, row=None, client=None):
         resources={"minio": MagicMock(), "neo4j_new": new, "zotero": zotero},
     )
     return context, session, zotero
+
+
+def test_fetch_pdf_returns_none_on_genuine_absence():
+    s3 = MagicMock()
+    s3.get_object.side_effect = botocore.exceptions.ClientError(
+        {"Error": {"Code": "404"}}, "GetObject")
+    assert zpa.fetch_pdf(s3, "k") is None
+
+
+def test_fetch_pdf_reraises_on_transient_error():
+    """A throttle, connection reset, or 500 is not "no PDF" -- swallowing it here is
+    exactly the bug this fix closes, so it must propagate to the caller."""
+    s3 = MagicMock()
+    s3.get_object.side_effect = botocore.exceptions.ClientError(
+        {"Error": {"Code": "500"}}, "GetObject")
+    with pytest.raises(botocore.exceptions.ClientError):
+        zpa.fetch_pdf(s3, "k")
 
 
 def test_noop_when_not_configured(monkeypatch):
@@ -140,3 +158,27 @@ def test_does_not_write_zotero_key_when_incomplete_even_with_a_real_key(monkeypa
     assert session.run.call_count == 1
     assert result.metadata["zotero_key"] == "EXISTING"
     assert result.metadata["complete"] is False
+
+
+def test_transient_pdf_fetch_failure_is_a_clean_noop(monkeypatch):
+    """A ClientError out of fetch_pdf (throttle, connection reset, a 500 -- anything that
+    is not a genuine 404/NoSuchKey/NotFound) must not be treated as "no PDF". If it were,
+    push_one would return complete=True and the caller would write zotero_key, stranding
+    the record without its attachment permanently -- the repair query only revisits
+    zotero_key IS NULL rows."""
+    row = {"node": dict(PAPER_NODE), "authors": ["Ada Lovelace"]}
+    client = MagicMock()
+    client.ensure_collections.return_value = {"papers": "PAPERS_COLL", "books": "BOOKS_COLL"}
+    context, session, zotero = _ctx(row=row, client=client)
+    exc = botocore.exceptions.ClientError({"Error": {"Code": "500"}}, "GetObject")
+    monkeypatch.setattr(zpa, "fetch_pdf", MagicMock(side_effect=exc))
+    push_one = MagicMock()
+    monkeypatch.setattr(zpa.zp, "push_one", push_one)
+
+    result = zpa.zotero_push(context)  # must not raise
+
+    assert result.metadata["pushed"] is False
+    assert "PDF fetch failed" in result.metadata["reason"]
+    push_one.assert_not_called()
+    # Only the read query ran -- no MARK_PAPER_PUSHED write.
+    assert session.run.call_count == 1
