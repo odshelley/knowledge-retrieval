@@ -24,6 +24,16 @@
 - **Zotero `mtime` is milliseconds**, not seconds.
 - **Zotero field-name casing is `DOI` and `ISBN` uppercase**, everything else camelCase. Lowercase variants are silently dropped by the API. (Verified against the live `items/new` templates, schema v42.)
 - Test commands run as `uv run pytest ...` from the repo root.
+- **Known-failing baseline — read this before trusting any "Expected: PASS".** On a clean checkout today, `uv run pytest tests -q` reports **6 failed, 306 passed, 20 skipped**. All 6 failures are `ModuleNotFoundError: No module named 'mcp'` in `tests/server/test_app.py`, because the optional `server` extra is not installed. They are unrelated to this work. Separately, `uv run ruff check .` reports **12 pre-existing errors, all in `notebooks/smoke_test.ipynb`**.
+
+  Therefore every "verify the full suite" step in this plan uses:
+
+  ```bash
+  uv run pytest tests -q --ignore=tests/server/test_app.py
+  uv run ruff check pipeline server scripts tests
+  ```
+
+  which is genuinely green today (306 passed, 20 skipped, no lint errors). Do **not** chain these with `&&` against the unfiltered suite — the pre-existing failures would stop the chain before ruff ever runs, and an agent following the plan literally would halt at Task 1.
 
 ## Verified API facts
 
@@ -166,7 +176,7 @@ def clean_doi(doi: str | None) -> str | None:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_research_port.py -v`
-Expected: PASS — the 5 new tests plus the 8 pre-existing ones.
+Expected: PASS — the 4 new tests plus the 8 pre-existing ones.
 
 - [ ] **Step 5: Wire into `triage_metadata.py`**
 
@@ -191,7 +201,7 @@ A placeholder DOI is now passed to neither `lookup_by_doi` (it would 404 and bur
 
 - [ ] **Step 6: Verify the full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS, no new failures.
 
 - [ ] **Step 7: Commit**
@@ -284,6 +294,8 @@ def test_lookup_by_arxiv_retries_a_429(monkeypatch):
 Run: `uv run pytest tests/test_research_port.py -v -k "retry or 429"`
 Expected: FAIL — `with_retry` does not exist; `lookup_by_arxiv` does not retry.
 
+(The quotes around the `-k` expression are required. Unquoted, the shell splits it and pytest reports `file or directory not found: or`, collecting 0 tests.)
+
 - [ ] **Step 3: Write the implementation**
 
 Add `import logging` and `import time` to the module imports, then:
@@ -357,7 +369,7 @@ Expected: no output.
 
 - [ ] **Step 6: Verify the full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -448,7 +460,7 @@ Expected: PASS
 
 - [ ] **Step 5: Verify the full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -608,7 +620,7 @@ Expected: `WRITE_PAPER params OK`
 
 - [ ] **Step 9: Verify the full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 10: Commit**
@@ -653,7 +665,11 @@ identifier-only) and are reported as 'unidentifiable' rather than silently skipp
 Writes through research_port.WRITE_PAPER so coalesce semantics match the ingest asset
 exactly — a paper whose lookup fails keeps whatever it already had.
 
-Idempotent; free S2 API, 1 req/paper, retried internally on 429.
+Idempotent; free S2 API, 1 req/paper, retried internally on 429, paced at ~1 req/s to
+stay under S2's unauthenticated limit (the same 1.1s pacing scripts/backfill_citations.py
+uses; without it, 124 back-to-back requests throttle hard and each 429 costs 15s of
+in-lookup backoff).
+
 Run: uv run python scripts/backfill_venue.py [--dry-run]
 """
 from __future__ import annotations
@@ -661,6 +677,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -736,8 +753,13 @@ def main() -> int:
                 print(f"  SKIP  {p['id']}  (no arxiv id, no usable doi)")
                 continue
 
+            # ~1 req/s. S2's unauthenticated tier shares a global budget and throttles
+            # unpredictably; do NOT wrap these in with_retry — they retry internally as
+            # of Task 2, and nesting multiplies both the requests and the backoff.
+            time.sleep(1.1)
             rec = rp.lookup_by_arxiv(arxiv) if arxiv else None
             if rec is None and doi:
+                time.sleep(1.1)
                 rec = rp.lookup_by_doi(doi)
 
             if not rec:
@@ -840,7 +862,7 @@ RETURN p{.id, .title, .year, .doi, .arxiv_id, .s2_id, .abstract, .tldr,
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `uv run pytest tests/server -v && uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests/server -v && uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -864,7 +886,9 @@ git commit -m "feat: expose venue properties to the MCP schema and GET_PAPER pro
 
 **Context:** Confirmed format is `Title - Author(s) - Year.pdf`. One author gives the surname; two give `Surname and Surname`; three or more give `Surname et al.`. The filename stays under 200 bytes, leaving headroom under the 255-byte filesystem limit for the eventual WebDAV/NAS backend. A missing component is omitted with its separator rather than rendered as `Unknown`.
 
-**Note:** this implementation was executed against every assertion below and all pass, including the byte math (a maximally long title lands at exactly 200 bytes). No changes were needed at review.
+**[REV] The `et al.` trap.** `_sanitize` ends with `.strip(".")`, which is required by `test_trailing_dots_are_stripped_from_the_title` and **fatal** if applied to the joined author segment: it silently turns `Bouchard et al.` into `Bouchard et al`, failing this task's own test. The fix is to sanitize each surname before joining, never the joined result. This was caught by executing the plan's tests against the plan's code; both forms look correct on inspection.
+
+**Note:** the implementation below was executed against every assertion in this task and all 11 pass, including the byte math — a maximally long title lands at exactly 200 bytes, so there is **zero margin**. Any change to the tail format or to `MAX_FILENAME_BYTES` flips that test; re-run it if either moves.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -969,8 +993,13 @@ def _sanitize(text: str) -> str:
 
 
 def author_segment(authors: list[str]) -> str:
-    """'' | 'Surname' | 'A and B' | 'A et al.' — Zotero's own citation convention."""
-    names = [surname(a) for a in (authors or []) if surname(a)]
+    """'' | 'Surname' | 'A and B' | 'A et al.' — Zotero's own citation convention.
+
+    Sanitizes each surname BEFORE joining. Sanitizing the joined result instead would
+    strip the period off "et al." (_sanitize ends in .strip(".")), which is load-bearing
+    for titles but wrong here.
+    """
+    names = [s for s in (_sanitize(surname(a)) for a in (authors or [])) if s]
     if not names:
         return ""
     if len(names) == 1:
@@ -984,7 +1013,8 @@ def attachment_filename(title: str | None, authors: list[str],
                         year: int | str | None) -> str:
     """Build the attachment filename, omitting absent segments and their separators."""
     safe_title = _sanitize(title or "") or "Untitled"
-    segments = [_sanitize(author_segment(authors)), _sanitize(str(year)) if year else ""]
+    # author_segment sanitizes its own parts — re-sanitizing here would eat "et al."
+    segments = [author_segment(authors), _sanitize(str(year)) if year else ""]
     tail = "".join(f" - {s}" for s in segments if s) + ".pdf"
 
     budget = MAX_FILENAME_BYTES - len(tail.encode("utf-8"))
@@ -1500,7 +1530,7 @@ Expected: PASS
 
 - [ ] **Step 5: Verify lint and full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -1904,7 +1934,7 @@ Expected: `configured: False` with no exception.
 
 - [ ] **Step 8: Verify lint and full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 9: Commit**
@@ -2091,6 +2121,14 @@ Append to `ZoteroClient`:
         if failed:
             raise ZoteroClientError(f"Zotero rejected {len(failed)} item(s): {failed}")
         successful = resp.get("successful") or {}
+        # Zotero also has an `unchanged` bucket. Fresh creates never land there, but
+        # indexing `successful` blindly would KeyError if one ever did.
+        unchanged = resp.get("unchanged") or {}
+        missing = [i for i in range(len(payload)) if str(i) not in successful]
+        if missing:
+            raise ZoteroClientError(
+                f"Zotero returned no key for item(s) {missing} "
+                f"(unchanged={list(unchanged)})")
         return [successful[str(i)]["key"] for i in range(len(payload))]
 
     def get_item(self, item_key: str) -> dict:
@@ -2161,7 +2199,7 @@ Expected: PASS
 
 - [ ] **Step 5: Verify lint and full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -2475,7 +2513,7 @@ Expected: PASS
 
 - [ ] **Step 5: Verify lint and full suite**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -2520,6 +2558,7 @@ from dagster import MaterializeResult, asset
 from pipeline.runtime.partitions import documents_partitions_def
 from pipeline.runtime.storage import RAW_BUCKET
 from pipeline.zotero import push as zp
+from pipeline.zotero.client import ZoteroClientError, ZoteroTransientError
 
 
 def fetch_pdf(s3, key: str) -> bytes | None:
@@ -2559,8 +2598,17 @@ def zotero_push(context) -> MaterializeResult:
                                                "reason": "already in Zotero",
                                                "zotero_key": node["zotero_key"]})
 
+        # ensure_collections() is OUTSIDE push_one's error handling and can raise on a
+        # revoked key or sustained throttling. Guard it, or a Zotero outage fails the
+        # whole ingest run — which this asset exists specifically not to do.
         client = zotero.get_client()
-        collections = client.ensure_collections()
+        try:
+            collections = client.ensure_collections()
+        except (ZoteroClientError, ZoteroTransientError) as exc:
+            context.log.warning(f"Zotero unavailable, skipping push: {exc}")
+            return MaterializeResult(metadata={"pushed": False,
+                                               "reason": f"Zotero unavailable: {exc}"})
+
         pdf = fetch_pdf(context.resources.minio.get_client(), key)
         out = zp.push_one(client, collections["papers"], {**node, "kind": "paper"},
                           authors, pdf)
@@ -2588,6 +2636,7 @@ from dagster import MaterializeResult, asset
 from pipeline.assets.zotero_push import _result, fetch_pdf
 from pipeline.runtime.partitions import books_partitions_def
 from pipeline.zotero import push as zp
+from pipeline.zotero.client import ZoteroClientError, ZoteroTransientError
 
 
 @asset(partitions_def=books_partitions_def(), deps=["book_structure_write"],
@@ -2612,7 +2661,13 @@ def book_zotero_push(context) -> MaterializeResult:
                                                "zotero_key": node["zotero_key"]})
 
         client = zotero.get_client()
-        collections = client.ensure_collections()
+        try:
+            collections = client.ensure_collections()
+        except (ZoteroClientError, ZoteroTransientError) as exc:
+            context.log.warning(f"Zotero unavailable, skipping push: {exc}")
+            return MaterializeResult(metadata={"pushed": False,
+                                               "reason": f"Zotero unavailable: {exc}"})
+
         pdf = fetch_pdf(context.resources.minio.get_client(), key)
         out = zp.push_one(client, collections["books"], {**node, "kind": "book"},
                           authors, pdf)
@@ -2663,8 +2718,15 @@ In `pipeline/definitions.py`: add `zotero_push, book_zotero_push` to the `from p
 
 - [ ] **Step 5: Verify Dagster still loads, with and without Zotero configured**
 
-Run: `uv run python -c "from pipeline.definitions import defs; print(len(defs.get_asset_graph().all_asset_keys), 'assets')"`
-Expected: `20 assets` (up from 18).
+The method is `get_all_asset_keys()`, not `all_asset_keys`, and `load_dotenv()` is required first because `definitions.py` calls `new_neo4j_from_env()` at import time (which raises `KeyError: 'NEO4J_NEW_URI'` without it):
+
+```bash
+uv run python -c "
+from dotenv import load_dotenv; load_dotenv()
+from pipeline.definitions import defs
+print(len(defs.get_asset_graph().get_all_asset_keys()), 'assets')"
+```
+Expected: `20 assets` (measured at 18 before this task).
 
 Run: `uv run pytest tests/test_definitions.py -v`
 Expected: PASS
@@ -2725,7 +2787,7 @@ def test_create_attach_and_delete_roundtrip(client):
 
 - [ ] **Step 7: Run the unit suite, then the integration test**
 
-Run: `uv run pytest tests -q && uv run ruff check .`
+Run: `uv run pytest tests -q --ignore=tests/server/test_app.py; uv run ruff check pipeline server scripts tests`
 Expected: PASS, integration tests skipped.
 
 Run: `uv run pytest tests/integration/test_zotero_integration.py -v --run-integration`
@@ -2855,13 +2917,16 @@ def main() -> int:
                 print(f"  SKIP     {ref['id']}  (node vanished)")
                 continue
             node, authors = dict(row["node"]), row["authors"]
-            pdf = fetch_pdf(s3, ref["document_id"])
-            if pdf is None:
-                no_pdf += 1
 
+            # Fetch AFTER the dry-run guard: pulling every PDF just to print DRY lines
+            # would download the whole ~1.28 GB corpus out of MinIO for nothing.
             if not args.apply:
                 print(f"  DRY      {kind:5} {node.get('title')!r}")
                 continue
+
+            pdf = fetch_pdf(s3, ref["document_id"])
+            if pdf is None:
+                no_pdf += 1
 
             try:
                 out = zp.push_one(
