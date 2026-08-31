@@ -20,6 +20,11 @@ class StubClient:
         self._upload_raises = upload_raises
         self._has_att = has_att
         self._has_att_raises = has_att_raises
+        # Models Zotero's real POST /items/<key>/file constraint: only a key returned
+        # from a create_items call for itemType == "attachment" may be uploaded to.
+        # Uploading straight to a parent item's key is a live HTTP 400 ("Item is not an
+        # attachment"), not a stub artifact -- confirmed against the real API.
+        self._attachment_keys = set()
         self.calls = []
 
     def search_candidates(self, title, limit=25):
@@ -30,7 +35,11 @@ class StubClient:
         if self._raises:
             raise self._raises
         self.calls.append(("create", payload[0].get("itemType")))
-        return [self._created if payload[0]["itemType"] != "attachment" else "ATTKEY"]
+        is_attachment = payload[0]["itemType"] == "attachment"
+        key = "ATTKEY" if is_attachment else self._created
+        if is_attachment:
+            self._attachment_keys.add(key)
+        return [key]
 
     def add_to_collection(self, item_key, collection_key):
         self.calls.append(("add_to_collection", item_key, collection_key))
@@ -43,6 +52,8 @@ class StubClient:
         return self._has_att
 
     def upload_attachment(self, item_key, filename, data):
+        if item_key not in self._attachment_keys:
+            raise ZoteroClientError("Item is not an attachment")
         if self._upload_raises:
             raise self._upload_raises
         self.calls.append(("upload", item_key, filename, len(data)))
@@ -61,7 +72,13 @@ def test_creates_item_and_uploads_when_no_match():
 
 
 def test_matched_item_without_an_attachment_gets_the_pdf():
-    """A metadata-only item the user saved from a browser must become openable."""
+    """A metadata-only item the user saved from a browser must become openable.
+
+    Uploading to the PARENT item's key is a real Zotero 400 ("Item is not an
+    attachment") -- confirmed live. The stub enforces the same constraint, so this
+    test only passes if push_one creates an attachment CHILD first and uploads to
+    that, and does not create a second parent item in the process.
+    """
     candidates = [{"key": "EXISTING", "data": {"archiveID": "arXiv:2503.13804"}}]
     c = StubClient(candidates=candidates, has_att=False)
     out = push_one(c, "COLL", PAPER, [], b"%PDF")
@@ -71,6 +88,9 @@ def test_matched_item_without_an_attachment_gets_the_pdf():
     assert out["complete"] is True
     assert ("add_to_collection", "EXISTING", "COLL") in c.calls
     assert any(call[0] == "upload" for call in c.calls)
+    # An attachment child was created -- and only that; the existing parent item
+    # (journalArticle/preprint/book) must never be recreated on the matched path.
+    assert [call for call in c.calls if call[0] == "create"] == [("create", "attachment")]
 
 
 def test_matched_item_with_an_attachment_is_left_alone():

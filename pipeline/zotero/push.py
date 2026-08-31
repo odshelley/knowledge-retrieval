@@ -89,10 +89,18 @@ def push_one(client, collection_key: str, record: dict, authors: list[str],
             # from a browser is exactly the case this project exists to make openable.
             if client.has_attachment(existing):
                 result.update(attachment="skipped-has-attachment", complete=True)
-            else:
-                status = _attach(client, existing, filename, pdf_bytes)
-                result.update(attachment=status,
-                              complete=status != "quota-exceeded")
+                return result
+
+            if not pdf_bytes:
+                result.update(attachment="skipped-no-pdf", complete=True)
+                return result
+
+            # Zotero's file endpoint only accepts an ATTACHMENT item's key -- uploading
+            # straight to `existing` (the parent) is a live HTTP 400. A child must be
+            # created first, exactly as the created-item branch below already does.
+            att_key = client.create_items([attachment_item(existing, filename)])[0]
+            status = _attach(client, att_key, filename, pdf_bytes)
+            result.update(attachment=status, complete=status != "quota-exceeded")
             return result
 
         item = (book_item(record, authors, collection_key) if is_book
