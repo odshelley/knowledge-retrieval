@@ -149,6 +149,67 @@ def test_book_mapping():
     assert item["collections"] == ["BOOKS"]
 
 
+# --- preprint hosts (SSRN, arXiv, CoRR) masquerading as journals -----------------
+
+# Real corpus record: S2 tags an SSRN working paper as JournalArticle in a "journal"
+# called Social Science Research Network.
+SSRN_PAPER = {
+    "title": "Continuous-time Equilibrium Returns in Markets with Price Impact and "
+             "Transaction Costs",
+    "year": 2024,
+    "doi": "10.2139/ssrn.4839073",
+    "arxiv_id": "2405.14418",
+    "venue": "Social Science Research Network",
+    "journal_name": "SSRN Electronic Journal",
+    "volume": None,
+    "pages": None,
+    "publication_types": ["JournalArticle"],
+}
+
+
+def test_ssrn_masquerading_as_a_journal_maps_to_preprint():
+    """S2 says JournalArticle for an SSRN listing, but that is S2 being wrong: an SSRN
+    DOI is not a publisher DOI, so this must be filed as a preprint, not a journal
+    article in a journal called "Social Science Research Network"."""
+    item = paper_item(SSRN_PAPER, [], "COLL1")
+    assert item["itemType"] == "preprint"
+    assert "publicationTitle" not in item
+    assert "journalAbbreviation" not in item
+    assert "volume" not in item
+    assert "pages" not in item
+    assert item["repository"] == "arXiv"
+    assert item["archiveID"] == "arXiv:2405.14418"
+
+
+def test_ssrn_doi_without_journal_claim_stays_preprint():
+    """Pin the pre-existing (already correct) behaviour for the second real corpus case,
+    so a future change to the preprint-host logic can't regress it."""
+    paper = {"title": "T", "year": 2020, "doi": "10.2139/ssrn.3594076",
+             "arxiv_id": "2005.02633", "publication_types": []}
+    item = paper_item(paper, [], "C")
+    assert item["itemType"] == "preprint"
+    assert item["archiveID"] == "arXiv:2005.02633"
+
+
+def test_real_publisher_doi_wins_over_preprint_host_venue():
+    """A genuine publisher DOI is the trustworthy signal that a paper was actually
+    published — an odd/preprint-host-shaped venue string alone must not downgrade it."""
+    paper = dict(JOURNAL_PAPER, venue="SSRN Electronic Journal")
+    assert paper_item(paper, [], "C")["itemType"] == "journalArticle"
+
+
+def test_arxiv_org_venue_is_recognized_as_a_preprint_host():
+    paper = {"title": "T", "year": 2020, "doi": None, "arxiv_id": "2001.00001",
+             "venue": "arxiv.org", "journal_name": None, "publication_types": ["JournalArticle"]}
+    assert paper_item(paper, [], "C")["itemType"] == "preprint"
+
+
+def test_corr_journal_name_is_recognized_as_a_preprint_host():
+    paper = {"title": "T", "year": 2020, "doi": None, "arxiv_id": "2001.00002",
+             "venue": None, "journal_name": "CoRR", "publication_types": ["JournalArticle"]}
+    assert paper_item(paper, [], "C")["itemType"] == "preprint"
+
+
 def test_attachment_item_includes_required_tags_and_relations():
     """The API docs list tags and relations as required on item creation."""
     att = attachment_item("PARENT1", "A Study - Lovelace - 2020.pdf")

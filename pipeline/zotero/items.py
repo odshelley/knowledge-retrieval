@@ -16,11 +16,20 @@ from pipeline.graph.research_port import clean_doi, normalize_title, strip_arxiv
 # one of these is still a preprint.
 _PREPRINT_DOI_PREFIXES = ("10.48550/", "10.2139/ssrn")
 
-# S2 sometimes reports journal.name == "ArXiv" with an "abs/..." volume for a paper that
-# venue correctly identifies as published elsewhere. The whole journal object is junk then.
-_JUNK_JOURNAL_NAMES = {"arxiv", "arxiv.org", "corr"}
+# Preprint/working-paper hosts that S2 sometimes reports as `venue` or `journal.name` for
+# a paper that was never actually published in a journal — e.g. journal.name == "ArXiv"
+# with an "abs/..." volume, or venue == "Social Science Research Network" for an SSRN
+# working paper that S2's own publicationTypes still (wrongly) tags "JournalArticle".
+_PREPRINT_HOST_NAMES = {
+    "arxiv", "arxiv.org", "corr",
+    "ssrn", "ssrn electronic journal", "social science research network",
+}
 
 _NON_ALNUM = re.compile(r"[^0-9a-zA-Z]")
+
+
+def _is_preprint_host(value: str | None) -> bool:
+    return bool(value) and value.strip().lower() in _PREPRINT_HOST_NAMES
 
 
 def publisher_doi(doi: str | None) -> str | None:
@@ -53,7 +62,7 @@ def _journal_fields(paper: dict) -> tuple[str | None, str | None, str | None, st
     journal_name = paper.get("journal_name")
     volume, pages = paper.get("volume"), paper.get("pages")
 
-    if journal_name and journal_name.strip().lower() in _JUNK_JOURNAL_NAMES:
+    if _is_preprint_host(journal_name):
         journal_name, volume, pages = None, None, None
 
     title = venue or journal_name
@@ -84,6 +93,21 @@ def paper_item(paper: dict, authors: list[str], collection_key: str) -> dict:
 
     if paper.get("abstract"):
         item["abstractNote"] = paper["abstract"]
+
+    # A preprint-host venue/journal name (SSRN, arXiv, CoRR) with no genuine publisher
+    # DOI means the paper was never actually published, whatever publication_types
+    # claims — S2 tags SSRN working papers "JournalArticle" and is simply wrong. A real
+    # publisher DOI is the trustworthy signal, so it always overrides this branch.
+    hosted_as_preprint = _is_preprint_host(paper.get("venue")) or _is_preprint_host(
+        paper.get("journal_name"))
+    if hosted_as_preprint and doi is None:
+        item["itemType"] = "preprint"
+        if arxiv:
+            bare = strip_arxiv_version(arxiv)
+            item["repository"] = "arXiv"
+            item["archiveID"] = f"arXiv:{bare}"
+            item["url"] = f"https://arxiv.org/abs/{bare}"
+        return item
 
     # "conference" before "journalarticle": S2 returns both for proceedings a journal later
     # indexed, and the proceedings is the more specific truth. Casing has no space —
