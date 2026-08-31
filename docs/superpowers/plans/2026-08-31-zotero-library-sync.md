@@ -176,7 +176,7 @@ def clean_doi(doi: str | None) -> str | None:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_research_port.py -v`
-Expected: PASS — the 4 new tests plus the 8 pre-existing ones.
+Expected: PASS — 13 total: the 5 new tests plus the 8 pre-existing ones.
 
 - [ ] **Step 5: Wire into `triage_metadata.py`**
 
