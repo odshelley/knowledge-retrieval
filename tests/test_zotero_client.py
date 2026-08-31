@@ -244,6 +244,32 @@ def test_has_attachment_false_for_a_metadata_only_item():
     assert client(http).has_attachment("ITEM") is False
 
 
+@pytest.mark.parametrize("link_mode,expected", [
+    ("imported_file", True),   # a real stored PDF
+    ("imported_url", True),    # a stored snapshot
+    ("linked_file", True),     # already-attached PDF, just not Zotero-hosted — a second
+                                # upload would visibly duplicate it, so this counts
+    ("linked_url", False),     # a bookmark with NO file at all — the regression guard
+])
+def test_has_attachment_respects_link_mode(link_mode, expected):
+    http = FakeHTTP([FakeResponse(json_data=[{"key": "ATT", "data": {
+        "itemType": "attachment", "linkMode": link_mode}}])])
+    assert client(http).has_attachment("ITEM") is expected
+
+
+def test_has_attachment_treats_a_missing_link_mode_as_a_file_present():
+    """An unrecognized/absent linkMode is treated conservatively as 'has a file', so an
+    unfamiliar response shape never causes a duplicate upload."""
+    http = FakeHTTP([FakeResponse(json_data=[{"key": "ATT", "data": {
+        "itemType": "attachment"}}])])
+    assert client(http).has_attachment("ITEM") is True
+
+
+def test_has_attachment_ignores_a_note_child():
+    http = FakeHTTP([FakeResponse(json_data=[{"key": "N", "data": {"itemType": "note"}}])])
+    assert client(http).has_attachment("ITEM") is False
+
+
 def test_add_to_collection_patches_only_the_collections_field():
     http = FakeHTTP([
         FakeResponse(json_data={"data": {"key": "ITEM", "version": 7,
@@ -307,6 +333,16 @@ def test_upload_authorization_sends_md5_filesize_and_millisecond_mtime():
     assert sent["filename"] == "f.pdf"
     assert sent["mtime"] > 10**12, "mtime must be milliseconds, not seconds"
     assert http.calls[0]["headers"]["If-None-Match"] == "*"
+
+
+def test_upload_attachment_raises_when_authorization_response_is_missing_a_field():
+    """A 200 authorize response with a body that isn't the shape we expect (missing a
+    required upload field) must not escape as a raw KeyError."""
+    http = FakeHTTP([FakeResponse(json_data={
+        "url": "https://s3.example/put", "contentType": "text/plain",
+        "prefix": "PRE", "uploadKey": "UK"})])  # no "suffix"
+    with pytest.raises(ZoteroClientError, match="suffix"):
+        client(http).upload_attachment("ITEM", "f.pdf", b"data")
 
 
 def test_quota_exceeded_raises_the_specific_error():

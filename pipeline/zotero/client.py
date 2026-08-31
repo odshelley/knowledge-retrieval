@@ -260,15 +260,24 @@ class ZoteroClient:
         return self._json(self.request("GET", f"/items/{item_key}"))
 
     def has_attachment(self, item_key: str) -> bool:
-        """True if the item already has a child attachment.
+        """True if the item already has a child attachment that carries an actual file.
 
         Lets the push attach a PDF to a metadata-only item the user saved themselves,
-        while never adding a second file to one that already has one.
+        while never adding a second file to one that already has one. A `linked_url`
+        attachment is a bookmark with no file behind it at all, so it does not count.
+        Every other linkMode — imported_file, imported_url, linked_file, or one we've
+        never seen (including an absent linkMode) — is treated conservatively as
+        already having a file, since a linked_file in particular means the user has
+        genuinely attached a PDF already, just not into Zotero's own storage; uploading
+        a second copy would visibly duplicate it.
         """
         children = self._json(self.request("GET", f"/items/{item_key}/children",
                               params={"format": "json"}))
-        return any((c.get("data") or {}).get("itemType") == "attachment"
-                   for c in children)
+        for child in children:
+            data = child.get("data") or {}
+            if data.get("itemType") == "attachment" and data.get("linkMode") != "linked_url":
+                return True
+        return False
 
     def add_to_collection(self, item_key: str, collection_key: str) -> bool:
         """Add an existing item to a collection without touching any other field.
@@ -307,6 +316,14 @@ class ZoteroClient:
 
         if auth.get("exists"):
             return "exists"
+
+        # Every field below is dereferenced unconditionally past this point; a 200 whose
+        # body doesn't match the documented shape must not escape as a raw KeyError.
+        required = ("url", "contentType", "prefix", "suffix", "uploadKey")
+        missing = [f for f in required if f not in auth]
+        if missing:
+            raise ZoteroClientError(
+                f"Zotero's upload authorization response is missing {missing}: {auth}")
 
         body = auth["prefix"].encode("utf-8") + data + auth["suffix"].encode("utf-8")
         # absolute=True withholds the API key: this host is Zotero's storage backend.
