@@ -66,6 +66,28 @@ class AnthropicResource(ConfigurableResource):
         return anthropic.Anthropic(api_key=self.api_key)
 
 
+class ZoteroResource(ConfigurableResource):
+    """Zotero Web API v3 — personal library sync for ingested papers and books.
+
+    Uses os.environ.get with a default (like OpenAILLMResource) rather than os.environ[...]
+    (like minio_from_env), so an unconfigured install still loads the Dagster definitions.
+    Assets must check `configured` before building a client — see zotero_push.
+    """
+    api_key: str = Field(default_factory=lambda: os.environ.get("ZOTERO_API_KEY", ""))
+    user_id: str = Field(default_factory=lambda: os.environ.get("ZOTERO_USER_ID", ""))
+    base_url: str = "https://api.zotero.org"
+    request_timeout: float = 60.0
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.api_key and self.user_id)
+
+    def get_client(self):
+        from pipeline.zotero.client import ZoteroClient
+        return ZoteroClient(api_key=self.api_key, user_id=self.user_id,
+                            base_url=self.base_url, timeout=self.request_timeout)
+
+
 def new_neo4j_from_env() -> Neo4jResource:
     return Neo4jResource(
         uri=os.environ["NEO4J_NEW_URI"],
