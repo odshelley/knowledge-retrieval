@@ -161,9 +161,17 @@ def top_reference_records(raw_refs: list[dict], limit: int = 3) -> list[dict]:
 # --- vendored Cypher (db-add-paper / db-cite-paper) ------------------------------------
 WRITE_PAPER = """
 MERGE (p:Paper {id: $id})
-SET p.title=$title, p.year=$year, p.arxiv_id=$arxiv_id, p.doi=$doi, p.s2_id=$s2_id,
-    p.abstract=$abstract, p.tldr=$tldr, p.citation_count=$citation_count,
-    p.influential_citation_count=$influential_citation_count, p.document_id=$document_id
+SET p.title = coalesce($title, p.title),
+    p.year = coalesce($year, p.year),
+    p.arxiv_id = coalesce($arxiv_id, p.arxiv_id),
+    p.doi = coalesce($doi, p.doi),
+    p.s2_id = coalesce($s2_id, p.s2_id),
+    p.abstract = coalesce($abstract, p.abstract),
+    p.tldr = coalesce($tldr, p.tldr),
+    p.citation_count = coalesce($citation_count, p.citation_count),
+    p.influential_citation_count = coalesce($influential_citation_count,
+                                            p.influential_citation_count),
+    p.document_id = $document_id
 WITH p
 UNWIND $authors AS author
   MERGE (a:Author {name: author.name})

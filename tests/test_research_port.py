@@ -1,4 +1,8 @@
+import re
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from pipeline.graph import research_port as rp
 from pipeline.graph.research_port import (
     compute_paper_id, strip_arxiv_version, lookup_by_arxiv, references, top_reference_records,
@@ -138,3 +142,27 @@ def test_lookup_by_arxiv_retries_a_429(monkeypatch):
     monkeypatch.setattr(rp.requests, "get", lambda *a, **k: Resp(statuses.pop(0)))
     rec = rp.lookup_by_arxiv("2305.16261")
     assert rec is not None and rec["s2_id"] == "abc"
+
+
+ENRICHMENT_PROPS = [
+    "title", "year", "arxiv_id", "doi", "s2_id",
+    "abstract", "tldr", "citation_count", "influential_citation_count",
+]
+
+
+def _flat(cypher: str) -> str:
+    """Collapse whitespace so assertions survive line-wrapping in the query text."""
+    return re.sub(r"\s+", " ", cypher)
+
+
+@pytest.mark.parametrize("prop", ENRICHMENT_PROPS)
+def test_write_paper_never_nulls_out_enrichment_fields(prop):
+    """A failed S2 lookup passes None for every enrichment field. An unconditional SET
+    would erase good stored values; each must be guarded by coalesce."""
+    assert f"p.{prop} = coalesce(${prop}, p.{prop})" in _flat(rp.WRITE_PAPER)
+
+
+def test_write_paper_sets_document_id_unconditionally():
+    """document_id comes from the partition key, never from S2, and is never null."""
+    assert "p.document_id = $document_id" in _flat(rp.WRITE_PAPER)
+    assert "coalesce($document_id" not in _flat(rp.WRITE_PAPER)
