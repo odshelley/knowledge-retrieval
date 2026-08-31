@@ -47,14 +47,15 @@ def triage_metadata(context) -> MaterializeResult:
     if not fm.get("is_paper"):
         raise QuarantineError(f"{key}: triage classified this document as not-a-paper — quarantined.")
 
+    fm_doi = rp.clean_doi(fm.get("doi"))
     rec = None
     if fm.get("arxiv_id"):
         rec = rp.lookup_by_arxiv(fm["arxiv_id"])
-    if rec is None and fm.get("doi"):
-        rec = rp.lookup_by_doi(fm["doi"])
+    if rec is None and fm_doi:
+        rec = rp.lookup_by_doi(fm_doi)
     rec = rec or {}
 
-    doi = rec.get("doi") or fm.get("doi")
+    doi = rp.clean_doi(rec.get("doi")) or fm_doi
     arxiv = rec.get("arxiv_id") or fm.get("arxiv_id")
     title = rec.get("title") or fm.get("title")
     paper_id = rp.compute_paper_id(doi, arxiv, title)

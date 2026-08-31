@@ -22,6 +22,35 @@ def normalize_title(title: str) -> str:
     return re.sub(r"\s+", " ", title.strip().lower())
 
 
+# A DOI is "10.<4-9 digit registrant>/<suffix>". Anything else is not a DOI.
+_DOI_SHAPE = re.compile(r"^10\.\d{4,9}/\S+$")
+# Unfilled LaTeX template DOIs seen in the corpus. Case-SENSITIVE on purpose: a
+# case-insensitive rule rejected the legitimate "10.1088/1361-6420/abcxxxx".
+_PLACEHOLDER_RUN = re.compile(r"N{4,}|X{4,}")
+# All-zeros suffix, e.g. "0000000.0000000". Requiring the WHOLE suffix keeps
+# "10.1002/nla.2000000" (six zeros among real digits) valid.
+_ALL_ZEROS_SUFFIX = re.compile(r"^[0.]+$")
+_DOI_URL_PREFIX = re.compile(r"^https?://(dx\.)?doi\.org/", re.IGNORECASE)
+
+
+def clean_doi(doi: str | None) -> str | None:
+    """Normalize a DOI, returning None for absent, malformed, or placeholder values.
+
+    Strips doi.org/dx.doi.org URL prefixes (stored verbatim by the frontmatter LLM, which
+    breaks both S2 lookup and compute_paper_id's "doi:"+lower() identity) and rejects the
+    unfilled LaTeX template DOIs that reached the graph as real identifiers.
+    """
+    if not doi:
+        return None
+    d = _DOI_URL_PREFIX.sub("", doi.strip())
+    if not _DOI_SHAPE.match(d):
+        return None
+    suffix = d.split("/", 1)[1]
+    if _PLACEHOLDER_RUN.search(suffix) or _ALL_ZEROS_SUFFIX.match(suffix):
+        return None
+    return d
+
+
 def compute_paper_id(doi: str | None, arxiv_id: str | None, title: str | None) -> str:
     if doi:
         return "doi:" + doi.strip().lower()
