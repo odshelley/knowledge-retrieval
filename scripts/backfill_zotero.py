@@ -67,11 +67,21 @@ def main() -> int:
     with driver, driver.session(database=database) as s:
         unenriched = s.run(UNENRICHED).single()["n"]
         if unenriched > UNENRICHED_THRESHOLD and not args.skip_venue_check:
-            print(f"REFUSING: {unenriched} papers have an identifier but no venue data.\n"
-                  f"Run `uv run python scripts/backfill_venue.py` first, or pass\n"
-                  f"--skip-venue-check to proceed anyway. Pushing now would file these as\n"
-                  f"preprints permanently — the zotero_key guard stops a re-run fixing it.")
-            return 1
+            # A dry run writes nothing, to Zotero or to Neo4j, so it carries none of the
+            # risk this guard exists for — only --apply can permanently mis-file the
+            # corpus as preprints (the zotero_key marker then blocks a correcting re-run).
+            # Previewing against unenriched data is exactly how an operator sanity-checks
+            # the script before committing to a ~1.28 GB upload, so only --apply refuses.
+            if args.apply:
+                print(f"REFUSING: {unenriched} papers have an identifier but no venue data.\n"
+                      f"Run `uv run python scripts/backfill_venue.py` first, or pass\n"
+                      f"--skip-venue-check to proceed anyway. Pushing now would file these as\n"
+                      f"preprints permanently — the zotero_key guard stops a re-run fixing it.")
+                return 1
+            print(f"WARNING: {unenriched} papers have an identifier but no venue data and\n"
+                  f"would be filed as preprints. This preview reflects that unenriched state.\n"
+                  f"--apply will refuse until `uv run python scripts/backfill_venue.py` has\n"
+                  f"run, unless --skip-venue-check is passed.\n")
 
         collections = client.ensure_collections()
         print(f"collections: Papers={collections['papers']} Books={collections['books']}",
