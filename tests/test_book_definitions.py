@@ -20,6 +20,15 @@ def test_paper_job_untouched():
 def test_book_assets_registered():
     expected = {"book_raw_blob", "book_parsed", "book_metadata", "book_structure",
                 "book_chunks", "book_structure_write", "book_chapter_extraction",
-                "book_chapter_resolved", "book_chapter_graph_write"}
+                "book_chapter_resolved", "book_chapter_graph_write", "book_zotero_push"}
     have = {ak.path[-1] for ak in defs.get_asset_graph().get_all_asset_keys()}
     assert expected <= have
+
+
+def test_jobs_include_zotero_push():
+    doc_names = {ak.path[-1] for ak in
+                 defs.get_job_def("ingest_document").asset_layer.executable_asset_keys}
+    assert "zotero_push" in doc_names
+    book_names = {ak.path[-1] for ak in
+                  defs.get_job_def("ingest_book").asset_layer.executable_asset_keys}
+    assert "book_zotero_push" in book_names

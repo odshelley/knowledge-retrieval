@@ -2,7 +2,7 @@ from dagster import AssetSelection, define_asset_job
 
 from pipeline.assets import (
     raw_blob, parsed_document, triage_metadata, chunks,
-    extracted_graph, resolved_entities, graph_write, paper_analysis,
+    extracted_graph, resolved_entities, graph_write, paper_analysis, zotero_push,
 )
 
 ingest_document = define_asset_job(
@@ -10,15 +10,16 @@ ingest_document = define_asset_job(
     selection=AssetSelection.assets(
         raw_blob.raw_blob, parsed_document.parsed_document, triage_metadata.triage_metadata,
         chunks.chunks, extracted_graph.extracted_graph, resolved_entities.resolved_entities,
-        graph_write.graph_write, paper_analysis.paper_analysis,
+        graph_write.graph_write, paper_analysis.paper_analysis, zotero_push.zotero_push,
     ),
-    description="Full per-document build: raw → parse → triage → chunk → extract → resolve → write → analyse.",
+    description="Full per-document build: raw → parse → triage → chunk → extract → resolve "
+                "→ write → analyse → Zotero.",
 )
 
 from pipeline.assets import (  # noqa: E402
     book_raw_blob, book_parsed, book_metadata, book_structure, book_chunks,
     book_structure_write, book_chapter_extraction, book_chapter_resolved,
-    book_chapter_graph_write,
+    book_chapter_graph_write, book_zotero_push,
 )
 
 ingest_book = define_asset_job(
@@ -26,10 +27,10 @@ ingest_book = define_asset_job(
     selection=AssetSelection.assets(
         book_raw_blob.book_raw_blob, book_parsed.book_parsed, book_metadata.book_metadata,
         book_structure.book_structure, book_chunks.book_chunks,
-        book_structure_write.book_structure_write,
+        book_structure_write.book_structure_write, book_zotero_push.book_zotero_push,
     ),
     description="Book structure build: raw → parse(pages+toc) → metadata → structure → "
-                "chunk+embed → write. RAG-ready; extraction follows per chapter.",
+                "chunk+embed → write → Zotero. RAG-ready; extraction follows per chapter.",
 )
 
 extract_book_chapter = define_asset_job(
