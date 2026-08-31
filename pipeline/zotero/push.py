@@ -110,6 +110,17 @@ def push_one(client, collection_key: str, record: dict, authors: list[str],
         result.update(attachment=status, complete=status != "quota-exceeded")
         return result
 
+    except ZoteroQuotaError as exc:
+        # ZoteroQuotaError subclasses ZoteroClientError, so this handler must stay ahead
+        # of any ZoteroClientError handler ever added here, or it becomes silently dead
+        # code. Reached only when the item's OWN creation hits 413 -- a different quota
+        # check than the one _attach handles on upload -- so unlike the upload case the
+        # item was never created and there is no key to report.
+        log.warning("Zotero storage quota exceeded creating item for %s: %s",
+                    record.get("id"), exc)
+        result["reason"] = str(exc)
+        return result
+
     except ZoteroTransientError as exc:
         # Throttling, a locked library, or a 5xx that survived retries. `complete` stays
         # False, so the caller withholds zotero_key and the repair query revisits this.
