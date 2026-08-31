@@ -3,10 +3,14 @@ research_tools.py @ 0f22fa6). CLI/argparse and the ~/.claude/research-neo4j.json
 connection stripped; callers pass the pipeline's Neo4j driver. NOT a runtime dependency."""
 from __future__ import annotations
 
+import logging
 import re
+import time
 
 import requests
 from requests import RequestException
+
+log = logging.getLogger(__name__)
 
 BASE = "https://api.semanticscholar.org/graph/v1"
 FIELDS = "paperId,title,abstract,year,venue,externalIds,citationCount,influentialCitationCount,tldr,authors"
@@ -76,20 +80,56 @@ def _paper_json_to_record(j: dict) -> dict:
     }
 
 
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def with_retry(fn, *args, attempts: int = 3, base_sleep: float = 5.0):
+    """Retry a call that signals failure by returning a falsy value.
+
+    Used for rp.references(), which has no internal retry. Do NOT wrap lookup_by_arxiv /
+    lookup_by_doi in this — they retry internally, and nesting multiplies the sleeps.
+    """
+    out = None
+    for i in range(attempts):
+        out = fn(*args)
+        if out:
+            return out
+        if i < attempts - 1:
+            time.sleep(base_sleep * (i + 1))
+    return out
+
+
+def _get_paper(path: str) -> dict | None:
+    """One S2 GET with retry on throttling/5xx. A 404 is definitive and returns at once.
+
+    Path prefixes are "arXiv:<id>" and "DOI:<doi>". S2 documents these uppercase as
+    "ARXIV:"; prefix matching is case-insensitive in practice, verified live.
+    """
+    for attempt in range(3):
+        try:
+            r = requests.get(f"{BASE}/paper/{path}", params={"fields": FIELDS}, timeout=20)
+        except RequestException as exc:
+            log.warning("S2 request for %s failed: %s", path, exc)
+            time.sleep(5.0 * (attempt + 1))
+            continue
+        if r.status_code == 200:
+            return _paper_json_to_record(r.json())
+        if r.status_code not in _RETRYABLE_STATUS:
+            log.info("S2 has no record for %s (HTTP %s)", path, r.status_code)
+            return None
+        log.warning("S2 throttled/erred for %s (HTTP %s), attempt %s/3",
+                    path, r.status_code, attempt + 1)
+        time.sleep(5.0 * (attempt + 1))
+    log.warning("S2 lookup for %s exhausted retries — treating as unenriched", path)
+    return None
+
+
 def lookup_by_arxiv(arxiv_id: str) -> dict | None:
-    try:
-        r = requests.get(f"{BASE}/paper/arXiv:{arxiv_id}", params={"fields": FIELDS}, timeout=20)
-        return _paper_json_to_record(r.json()) if r.status_code == 200 else None
-    except RequestException:
-        return None
+    return _get_paper(f"arXiv:{arxiv_id}")
 
 
 def lookup_by_doi(doi: str) -> dict | None:
-    try:
-        r = requests.get(f"{BASE}/paper/DOI:{doi}", params={"fields": FIELDS}, timeout=20)
-        return _paper_json_to_record(r.json()) if r.status_code == 200 else None
-    except RequestException:
-        return None
+    return _get_paper(f"DOI:{doi}")
 
 
 def references(s2_id: str) -> list[dict]:

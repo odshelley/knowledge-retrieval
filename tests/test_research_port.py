@@ -82,3 +82,59 @@ def test_clean_doi_rejects_structurally_invalid():
     assert rp.clean_doi("not-a-doi") is None
     assert rp.clean_doi("10.1145/") is None          # empty suffix
     assert rp.clean_doi("10.1/short-prefix") is None  # registrant must be 4-9 digits
+
+
+def test_with_retry_returns_first_truthy_without_sleeping(monkeypatch):
+    slept = []
+    monkeypatch.setattr(rp.time, "sleep", lambda s: slept.append(s))
+    calls = []
+
+    def fn():
+        calls.append(1)
+        return {"ok": True}
+
+    assert rp.with_retry(fn) == {"ok": True}
+    assert len(calls) == 1
+    assert slept == []
+
+
+def test_with_retry_gives_up_after_attempts(monkeypatch):
+    monkeypatch.setattr(rp.time, "sleep", lambda s: None)
+    calls = []
+
+    def fn():
+        calls.append(1)
+        return None
+
+    assert rp.with_retry(fn, attempts=3, base_sleep=0.0) is None
+    assert len(calls) == 3
+
+
+def test_lookup_by_arxiv_returns_none_on_404_without_retry(monkeypatch):
+    calls = []
+
+    class Resp:
+        status_code = 404
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(rp.requests, "get", lambda *a, **k: (calls.append(1), Resp())[1])
+    assert rp.lookup_by_arxiv("0000.00000") is None
+    assert len(calls) == 1, "a 404 is definitive; it must not be retried"
+
+
+def test_lookup_by_arxiv_retries_a_429(monkeypatch):
+    monkeypatch.setattr(rp.time, "sleep", lambda s: None)
+    statuses = [429, 429, 200]
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+        def json(self):
+            return {"paperId": "abc", "title": "T"}
+
+    monkeypatch.setattr(rp.requests, "get", lambda *a, **k: Resp(statuses.pop(0)))
+    rec = rp.lookup_by_arxiv("2305.16261")
+    assert rec is not None and rec["s2_id"] == "abc"
