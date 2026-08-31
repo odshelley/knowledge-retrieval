@@ -60,7 +60,8 @@ def check_read_only(cypher: str) -> None:
 def render_schema() -> str:
     lines = ["Node labels: " + ", ".join(NODE_TYPES), "", "Relationships:"]
     lines += [f"(:{s})-[:{r}]->(:{e})" for s, r, e in PATTERNS]
-    lines += ["", "Key properties: Paper{id,title,year,doi,arxiv_id,abstract,tldr,citation_count}, "
+    lines += ["", "Key properties: Paper{id,title,year,doi,arxiv_id,abstract,tldr,"
+              "citation_count,venue,journal_name,volume,pages,publication_types}, "
               "Concept{name,description,tags}, Definition{id,term,statement}, "
               "Result{id,kind,name,statement}, Chunk{id,text,position}, "
               "Notation{id,symbol_latex,meaning}, Proof{id,sketch,technique}, "
@@ -253,7 +254,8 @@ WHERE p.id = $key OR p.doi = $key OR p.arxiv_id = $key
 OPTIONAL MATCH (a:Author)-[:AUTHORED]->(p)
 OPTIONAL MATCH (p)-[:HAS_SUMMARY]->(sm:Summary)
 RETURN p{.id, .title, .year, .doi, .arxiv_id, .s2_id, .abstract, .tldr,
-         .citation_count, .influential_citation_count} AS paper,
+         .citation_count, .influential_citation_count,
+         .venue, .journal_name, .volume, .pages, .publication_types} AS paper,
        collect(DISTINCT a.name) AS authors, sm.json AS summary_json
 LIMIT 1
 """
