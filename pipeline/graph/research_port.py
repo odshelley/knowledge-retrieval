@@ -13,7 +13,8 @@ from requests import RequestException
 log = logging.getLogger(__name__)
 
 BASE = "https://api.semanticscholar.org/graph/v1"
-FIELDS = "paperId,title,abstract,year,venue,externalIds,citationCount,influentialCitationCount,tldr,authors"
+FIELDS = ("paperId,title,abstract,year,venue,externalIds,citationCount,"
+          "influentialCitationCount,tldr,authors,publicationTypes,journal")
 REF_FIELDS = "title,externalIds,influentialCitationCount"
 
 
@@ -68,9 +69,15 @@ def compute_paper_id(doi: str | None, arxiv_id: str | None, title: str | None) -
 # --- Semantic Scholar (vendored) -------------------------------------------------------
 def _paper_json_to_record(j: dict) -> dict:
     ext = j.get("externalIds") or {}
+    journal = j.get("journal") or {}
     return {
         "s2_id": j.get("paperId"), "title": j.get("title"), "abstract": j.get("abstract"),
         "year": j.get("year"), "venue": j.get("venue"),
+        "journal_name": journal.get("name"),
+        "volume": journal.get("volume"),
+        "pages": journal.get("pages"),
+        # S2 returns literal null here, not [], when the field is absent.
+        "publication_types": j.get("publicationTypes") or [],
         "doi": ext.get("DOI"), "arxiv_id": ext.get("ArXiv"),
         "citation_count": j.get("citationCount"),
         "influential_citation_count": j.get("influentialCitationCount"),
@@ -171,6 +178,11 @@ SET p.title = coalesce($title, p.title),
     p.citation_count = coalesce($citation_count, p.citation_count),
     p.influential_citation_count = coalesce($influential_citation_count,
                                             p.influential_citation_count),
+    p.venue = coalesce($venue, p.venue),
+    p.journal_name = coalesce($journal_name, p.journal_name),
+    p.volume = coalesce($volume, p.volume),
+    p.pages = coalesce($pages, p.pages),
+    p.publication_types = coalesce($publication_types, p.publication_types),
     p.document_id = $document_id
 WITH p
 UNWIND $authors AS author

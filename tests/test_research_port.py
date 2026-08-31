@@ -166,3 +166,51 @@ def test_write_paper_sets_document_id_unconditionally():
     """document_id comes from the partition key, never from S2, and is never null."""
     assert "p.document_id = $document_id" in _flat(rp.WRITE_PAPER)
     assert "coalesce($document_id" not in _flat(rp.WRITE_PAPER)
+
+
+S2_JOURNAL_RESPONSE = {
+    "paperId": "6b0388ae597bbe27aab7e81cb653a720b4f0760d",
+    "title": "A Multi-agent Targeted Trading Equilibrium with Transaction Costs",
+    "abstract": "We study...",
+    "year": 2023,
+    "venue": "SIAM Journal on Financial Mathematics",
+    "publicationTypes": ["JournalArticle"],
+    "journal": {"name": "SIAM J. Financial Math.", "volume": "15", "pages": "161-193"},
+    "externalIds": {"DOI": "10.1137/22M1542982", "ArXiv": "2306.08519"},
+    "citationCount": 42,
+    "influentialCitationCount": 5,
+    "tldr": {"text": "A short summary."},
+    "authors": [{"name": "Bruno Bouchard", "authorId": "1"}],
+}
+
+
+def test_record_maps_venue_and_flattens_journal():
+    rec = rp._paper_json_to_record(S2_JOURNAL_RESPONSE)
+    assert rec["venue"] == "SIAM Journal on Financial Mathematics"
+    assert rec["journal_name"] == "SIAM J. Financial Math."
+    assert rec["volume"] == "15"
+    assert rec["pages"] == "161-193"
+    assert rec["publication_types"] == ["JournalArticle"]
+
+
+def test_record_survives_missing_journal_and_null_publication_types():
+    """S2 returns literal null (not []) for publicationTypes when absent — verified live."""
+    minimal = {"paperId": "x", "title": "T", "journal": None, "publicationTypes": None}
+    rec = rp._paper_json_to_record(minimal)
+    assert rec["journal_name"] is None
+    assert rec["volume"] is None
+    assert rec["pages"] is None
+    assert rec["publication_types"] == []
+    assert rec["venue"] is None
+
+
+def test_fields_requests_the_venue_columns():
+    for field in ("venue", "publicationTypes", "journal"):
+        assert field in rp.FIELDS
+    assert "publicationVenue" not in rp.FIELDS, "deliberately not requested — see spec"
+
+
+@pytest.mark.parametrize("prop", ["venue", "journal_name", "volume", "pages",
+                                  "publication_types"])
+def test_write_paper_coalesces_venue_fields(prop):
+    assert f"p.{prop} = coalesce(${prop}, p.{prop})" in _flat(rp.WRITE_PAPER)

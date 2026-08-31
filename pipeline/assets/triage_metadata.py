@@ -66,6 +66,11 @@ def triage_metadata(context) -> MaterializeResult:
         "s2_id": rec.get("s2_id"), "abstract": rec.get("abstract"), "tldr": rec.get("tldr"),
         "citation_count": rec.get("citation_count"),
         "influential_citation_count": rec.get("influential_citation_count"),
+        "venue": rec.get("venue"),
+        "journal_name": rec.get("journal_name"),
+        "volume": rec.get("volume"),
+        "pages": rec.get("pages"),
+        "publication_types": rec.get("publication_types") or None,
         "authors": rec.get("authors") or [{"name": n, "s2_author_id": None}
                                           for n in (fm.get("authors") or [])],
     }
