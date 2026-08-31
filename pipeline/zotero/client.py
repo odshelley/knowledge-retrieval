@@ -9,6 +9,7 @@ absolute-URL requests, which target Zotero's third-party storage host rather tha
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 
@@ -30,6 +31,25 @@ COLLECTION_BOOKS = "Books"
 # Excludes attachments and notes. The leading "-" negates the whole OR expression, not
 # just the first term — verified empirically; a web search gives the wrong answer here.
 NON_FILE_ITEMS = "-attachment || note"
+
+
+def _parse_delay(value, fallback: float, *, header: str) -> float:
+    """Parse a Retry-After/Backoff header, falling back on anything missing or malformed.
+
+    RFC 9110 allows Retry-After to be an HTTP-date instead of delta-seconds, and Zotero
+    sits behind a CDN that can inject either form (or outright garbage) into either
+    header. A missing header is normal and silent; a malformed one degrades to the same
+    fallback but logs a warning, so a persistently misbehaving intermediary is visible
+    instead of being silently absorbed.
+    """
+    if not value:
+        return fallback
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        log.warning("Zotero sent a non-numeric %s header (%r); using %ss instead",
+                    header, value, fallback)
+        return fallback
 
 
 class ZoteroClientError(RuntimeError):
@@ -95,10 +115,12 @@ class ZoteroClient:
 
             backoff = resp.headers.get("Backoff")
             if backoff:
-                self._backoff_until = time.monotonic() + float(backoff)
+                self._backoff_until = time.monotonic() + _parse_delay(
+                    backoff, 0.0, header="Backoff")
 
             if resp.status_code in _RETRYABLE_STATUS:
-                delay = float(resp.headers.get("Retry-After") or 2.0 * (attempt + 1))
+                delay = _parse_delay(resp.headers.get("Retry-After"),
+                                     2.0 * (attempt + 1), header="Retry-After")
                 log.warning("Zotero %s %s throttled (HTTP %s), sleeping %ss",
                             method, path, resp.status_code, delay)
                 time.sleep(delay)
@@ -114,13 +136,28 @@ class ZoteroClient:
         raise ZoteroTransientError(
             f"Zotero {method} {path} exhausted {_MAX_ATTEMPTS} attempts")
 
+    @staticmethod
+    def _json(resp):
+        """Decode a response body, translating a malformed one into ZoteroTransientError.
+
+        A response can clear request()'s status gate (retryable statuses handled, < 400)
+        and still carry a body that isn't valid JSON — an intermediary's HTML error page,
+        or one truncated below the point the decoder can even start. That's ordinarily an
+        intermediary hiccup, worth retrying at the caller's level, not a raw stdlib
+        exception escaping the client's documented error hierarchy.
+        """
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise ZoteroTransientError(f"Zotero returned a malformed JSON body: {exc}") from exc
+
     def _paginate(self, path: str, params: dict | None = None) -> list[dict]:
         out: list[dict] = []
         start = 0
         while True:
-            page = self.request("GET", path,
-                                params={**(params or {}), "limit": PAGE_SIZE,
-                                        "start": start, "format": "json"}).json()
+            page = self._json(self.request("GET", path,
+                              params={**(params or {}), "limit": PAGE_SIZE,
+                                      "start": start, "format": "json"}))
             out.extend(page)
             if len(page) < PAGE_SIZE:
                 return out
@@ -133,8 +170,19 @@ class ZoteroClient:
 
     def create_collections(self, payload: list[dict]) -> list[str]:
         """Create collections, returning their keys in submission order."""
-        resp = self.request("POST", "/collections", json_body=payload).json()
+        resp = self._json(self.request("POST", "/collections", json_body=payload))
+        failed = resp.get("failed") or {}
+        if failed:
+            raise ZoteroClientError(f"Zotero rejected {len(failed)} collection(s): {failed}")
         successful = resp.get("successful") or {}
+        # Zotero also has an `unchanged` bucket. Fresh creates never land there, but
+        # indexing `successful` blindly would KeyError if one ever did.
+        unchanged = resp.get("unchanged") or {}
+        missing = [i for i in range(len(payload)) if str(i) not in successful]
+        if missing:
+            raise ZoteroClientError(
+                f"Zotero returned no key for collection(s) {missing} "
+                f"(unchanged={list(unchanged)})")
         return [successful[str(i)]["key"] for i in range(len(payload))]
 
     def ensure_collections(self) -> dict[str, str]:
@@ -168,3 +216,103 @@ class ZoteroClient:
             for (dest, _), key in zip(missing, keys):
                 found[dest] = key
         return found
+
+    # --- items -------------------------------------------------------------------
+
+    def search_candidates(self, title: str | None, limit: int = 25) -> list[dict]:
+        """Candidate items for deduplication, found by title. One request.
+
+        Used on the per-ingest path; the backfill uses library_index() so it does not
+        issue one search per item. qmode=titleCreatorYear is the documented default.
+        """
+        if not title or not title.strip():
+            return []
+        return self._json(self.request("GET", "/items", params={
+            "q": title.strip(), "qmode": "titleCreatorYear", "limit": limit,
+            "format": "json", "itemType": NON_FILE_ITEMS,
+        }))
+
+    def library_index(self) -> list[dict]:
+        """Every non-attachment, non-note item in the library. One paginated sweep,
+        reused across a whole backfill run."""
+        return self._paginate("/items", {"itemType": NON_FILE_ITEMS})
+
+    def create_items(self, payload: list[dict]) -> list[str]:
+        """Create items, returning their keys in submission order."""
+        if len(payload) > BATCH_LIMIT:
+            raise ValueError(f"Zotero accepts at most {BATCH_LIMIT} items per request")
+        resp = self._json(self.request("POST", "/items", json_body=payload))
+        failed = resp.get("failed") or {}
+        if failed:
+            raise ZoteroClientError(f"Zotero rejected {len(failed)} item(s): {failed}")
+        successful = resp.get("successful") or {}
+        # Zotero also has an `unchanged` bucket. Fresh creates never land there, but
+        # indexing `successful` blindly would KeyError if one ever did.
+        unchanged = resp.get("unchanged") or {}
+        missing = [i for i in range(len(payload)) if str(i) not in successful]
+        if missing:
+            raise ZoteroClientError(
+                f"Zotero returned no key for item(s) {missing} "
+                f"(unchanged={list(unchanged)})")
+        return [successful[str(i)]["key"] for i in range(len(payload))]
+
+    def get_item(self, item_key: str) -> dict:
+        return self._json(self.request("GET", f"/items/{item_key}"))
+
+    def has_attachment(self, item_key: str) -> bool:
+        """True if the item already has a child attachment.
+
+        Lets the push attach a PDF to a metadata-only item the user saved themselves,
+        while never adding a second file to one that already has one.
+        """
+        children = self._json(self.request("GET", f"/items/{item_key}/children",
+                              params={"format": "json"}))
+        return any((c.get("data") or {}).get("itemType") == "attachment"
+                   for c in children)
+
+    def add_to_collection(self, item_key: str, collection_key: str) -> bool:
+        """Add an existing item to a collection without touching any other field.
+
+        Returns False if already a member. PATCH carries only `collections`; Zotero leaves
+        properties absent from the body untouched, so the user's metadata is never rewritten.
+        """
+        item = self.get_item(item_key)
+        data = item.get("data") or {}
+        collections = list(data.get("collections") or [])
+        if collection_key in collections:
+            return False
+        self.request("PATCH", f"/items/{item_key}",
+                     json_body={"collections": collections + [collection_key]},
+                     headers={"If-Unmodified-Since-Version": str(data.get("version", 0))})
+        return True
+
+    # --- files -------------------------------------------------------------------
+
+    def upload_attachment(self, item_key: str, filename: str, data: bytes) -> str:
+        """Zotero's three-step file upload. Returns "exists" or "uploaded".
+
+        Raises ZoteroQuotaError on 413 so callers can report a quota problem distinctly
+        from a code defect. "exists" means Zotero already stores a file with this md5 and
+        has associated it with the item — free server-side deduplication.
+        """
+        auth_headers = {"If-None-Match": "*",
+                        "Content-Type": "application/x-www-form-urlencoded"}
+        auth = self._json(self.request(
+            "POST", f"/items/{item_key}/file", headers=auth_headers, data={
+                "md5": hashlib.md5(data).hexdigest(),
+                "filename": filename,
+                "filesize": len(data),
+                "mtime": int(time.time() * 1000),  # milliseconds, per the API docs
+            }))
+
+        if auth.get("exists"):
+            return "exists"
+
+        body = auth["prefix"].encode("utf-8") + data + auth["suffix"].encode("utf-8")
+        # absolute=True withholds the API key: this host is Zotero's storage backend.
+        self.request("POST", auth["url"], absolute=True, data=body,
+                     headers={"Content-Type": auth["contentType"]})
+
+        self.request("POST", f"/items/{item_key}/file", headers=auth_headers,
+                     data={"upload": auth["uploadKey"]})
+        return "uploaded"
