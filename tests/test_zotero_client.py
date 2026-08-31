@@ -184,10 +184,24 @@ def test_create_collections_raises_when_zotero_reports_a_failure():
 
 def test_malformed_json_body_raises_transient_not_a_raw_decode_error():
     """A response that clears request()'s status gate can still carry a non-JSON body.
-    That must not escape as a raw json.JSONDecodeError / ValueError."""
+    That must not escape as a raw json.JSONDecodeError / ValueError. Exercised on a
+    paginated decode path (_paginate, via list_collections)."""
     http = FakeHTTP([BadJSONResponse()])
     with pytest.raises(ZoteroTransientError):
         client(http).list_collections()
+
+
+def test_malformed_json_body_raises_transient_on_a_direct_decode_path():
+    """Same guard, exercised on a non-paginated decode site (get_item)."""
+    http = FakeHTTP([BadJSONResponse()])
+    with pytest.raises(ZoteroTransientError):
+        client(http).get_item("ITEM")
+
+
+def test_json_guard_is_transparent_on_a_well_formed_response():
+    """The decode guard must not change behavior on the happy path."""
+    http = FakeHTTP([FakeResponse(json_data={"data": {"key": "ITEM", "version": 1}})])
+    assert client(http).get_item("ITEM") == {"data": {"key": "ITEM", "version": 1}}
 
 
 def test_request_exception_exhausts_retries_and_raises_transient(monkeypatch):
